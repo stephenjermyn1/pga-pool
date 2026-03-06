@@ -175,7 +175,26 @@ export default function App() {
       const hasW = myGolfers.some(g => g.isWinner);
       if (hasW) cp += WINNER_BONUS;
       const hasScores = myGolfers.some(g => g.found && g.holesPlayed > 0);
-      return { name: player, golfers: sorted, counting: counting.map(g => g.name), combinedPar: cp, hasWinner: hasW, hasScores };
+      // Per-round scores for the current overall top 3 (counting) golfers
+      const countingGolfers = counting.filter(g => g.found);
+      const roundScores = [0, 1, 2, 3].map(ri => {
+        const vals = countingGolfers.map(g => {
+          const rd = g.rounds?.[ri];
+          if (!rd) return null;
+          if (rd.isComplete && rd.strokes != null) return rd.strokes - PAR;
+          if (rd.holesPlayed > 0 && rd.displayValue != null) {
+            const v = rd.displayValue === "E" ? 0 : parseInt(rd.displayValue);
+            return isNaN(v) ? null : v;
+          }
+          return null;
+        }).filter(v => v != null);
+        if (!vals.length) return null;
+        return vals.reduce((s, v) => s + v, 0);
+      });
+      const roundInProgress = [0, 1, 2, 3].map(ri =>
+        countingGolfers.some(g => { const rd = g.rounds?.[ri]; return rd && rd.holesPlayed > 0 && !rd.isComplete; })
+      );
+      return { name: player, golfers: sorted, counting: counting.map(g => g.name), combinedPar: cp, hasWinner: hasW, hasScores, roundScores, roundInProgress };
     }).sort((a, b) => {
       if (!a.hasScores && !b.hasScores) return 0;
       if (!a.hasScores) return 1; if (!b.hasScores) return -1;
@@ -483,6 +502,12 @@ export default function App() {
                     </div>
                     {!isExp && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{e.counting.join(", ")}</div>}
                   </div>
+                  {[0, 1, 2, 3].map(ri => {
+                    const rs = e.roundScores[ri];
+                    const inProg = e.roundInProgress[ri];
+                    const clr = rs == null ? "rgba(255,255,255,0.15)" : inProg ? (rs < 0 ? BOARD_RED : rs > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "#8fbc8f";
+                    return <div key={ri} style={{ flex: 0.45, textAlign: "center", fontSize: 12, fontWeight: 600, color: clr }}>{rs != null ? fmtPar(rs) : "—"}</div>;
+                  })}
                   <div style={{ flex: 0.6, textAlign: "right" }}>
                     <div style={{ fontSize: 20, fontWeight: 700, color: scoreColor, fontFamily: "'Georgia',serif" }}>
                       {e.hasScores ? fmtPar(e.combinedPar) : "—"}
