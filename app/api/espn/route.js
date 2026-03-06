@@ -38,8 +38,34 @@ export async function GET(request) {
     }
 
     const isComplete = comp.status?.type?.completed || false;
+    const currentPeriod = comp.status?.period || 0; // which round the tournament is on (1-4)
+    const tournamentState = comp.status?.type?.state || "pre"; // pre, in, post
     const detail = comp.status?.type?.detail || comp.status?.type?.description || "";
     const field = [];
+
+    // First pass: find the max rounds completed by any player (tells us where the tournament is)
+    let maxRoundsCompleted = 0;
+    comp.competitors.forEach((c) => {
+      (c.linescores || []).forEach((ls) => {
+        const hasValue = ls.value != null && ls.value !== 0;
+        const holes = ls.linescores || [];
+        if (holes.length === 18 && hasValue) maxRoundsCompleted = Math.max(maxRoundsCompleted, 1);
+      });
+    });
+    // Count properly per player below, but track global max
+    const globalMaxCompleted = (() => {
+      let mx = 0;
+      comp.competitors.forEach(c => {
+        let rc = 0;
+        (c.linescores || []).forEach(ls => {
+          const hasVal = ls.value != null && ls.value !== 0;
+          const holes = ls.linescores || [];
+          if (holes.length === 18 && hasVal) rc++;
+        });
+        if (rc > mx) mx = rc;
+      });
+      return mx;
+    })();
 
     comp.competitors.forEach((c) => {
       const name = c.athlete?.displayName || "Unknown";
@@ -72,7 +98,11 @@ export async function GET(request) {
       const roundsCompleted = rounds.filter((r) => r.isComplete).length;
 
       let status = "active";
-      if (isComplete && roundsCompleted <= 2 && totalHolesPlayed > 0) {
+      // A player has missed the cut if:
+      // - The tournament leaders have completed 3+ rounds (meaning R3 has started)
+      // - This player only has 2 or fewer completed rounds
+      // - This player has actually played some holes (not a WD before starting)
+      if (globalMaxCompleted >= 3 && roundsCompleted <= 2 && totalHolesPlayed > 0) {
         status = "cut";
       }
 
@@ -84,13 +114,14 @@ export async function GET(request) {
 
     field.sort((a, b) => a.order - b.order);
 
-    // Determine winner if complete
-    const winner = isComplete ? field[0]?.name || null : null;
+    // Determine winner only if tournament is truly complete (4 rounds played)
+    const tournamentFullyComplete = globalMaxCompleted >= 4 && (isComplete || tournamentState === "post");
+    const winner = tournamentFullyComplete ? field[0]?.name || null : null;
 
     return Response.json({
       eventName: ev.name,
       detail,
-      isComplete,
+      isComplete: tournamentFullyComplete,
       field,
       winner,
       events,
