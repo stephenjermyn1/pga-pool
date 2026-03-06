@@ -304,8 +304,9 @@ export default function App() {
     const allPicked = Object.values(picks).flat();
     const available = espnField.map(f => f.name).filter(g => !allPicked.includes(g));
     const filtered = search ? available.filter(g => g.toLowerCase().includes(search.toLowerCase())) : available;
-    const round = Math.floor(pickIdx / players.length) + 1;
+    const round = Math.min(Math.floor(pickIdx / players.length) + 1, PICKS);
     const total = draftOrder.length;
+    const displayPickIdx = Math.min(pickIdx, total);
 
     const doPick = (golfer) => {
       if (allPicked.includes(golfer)) { notify("Already picked!"); return; }
@@ -340,9 +341,9 @@ export default function App() {
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={S.badge}>Round {round}/{PICKS}</span>
-            <span style={{ fontSize: 12, color: "#999" }}>Pick {pickIdx + 1}/{total}</span>
+            <span style={{ fontSize: 12, color: "#999" }}>Pick {displayPickIdx}/{total}</span>
           </div>
-          <div style={S.bar}><div style={{ ...S.barFill, width: (pickIdx / total) * 100 + "%" }} /></div>
+          <div style={S.bar}><div style={{ ...S.barFill, width: (displayPickIdx / total) * 100 + "%" }} /></div>
           {eventName && <p style={{ margin: "8px 0 0", fontSize: 13, color: "#666" }}>{eventName}</p>}
         </Card>
         <div style={S.pickerCard}>
@@ -408,7 +409,7 @@ export default function App() {
           📊 {showFullLB ? "Pool View" : "Tournament"}
         </button>
         <button style={S.ctrl} onClick={() => setShowRules(!showRules)}>📋 Rules</button>
-        <button style={S.ctrl} onClick={() => { setDraftDone(false); setScreen("draft"); }}>📝 Draft</button>
+        <button style={S.ctrl} onClick={() => setScreen("draft")}>📝 Draft</button>
         <button style={{ ...S.ctrl, marginLeft: "auto", color: "#dc3545", borderColor: "#dc3545" }}
           onClick={() => { if (confirm("Reset everything?")) { savePool(POOL_ID, null); setPlayers([]); setDraftOrder([]); setPickIdx(0); setPicks({}); setDraftDone(false); setEspnField([]); setEventName(""); setNames(["", "", "", ""]); setScreen("setup"); } }}>🗑️</button>
       </div>
