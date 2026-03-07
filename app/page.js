@@ -470,35 +470,31 @@ export default function App() {
         {players.map(name => {
           const claimedByMe = claims[name] === uid;
           const claimedByOther = claims[name] && claims[name] !== uid;
-          const isClaimed = !!claims[name];
           return (
             <button
               key={name}
-              disabled={claimedByOther}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 width: "100%", padding: "14px 16px", marginBottom: 8,
-                borderRadius: 10, cursor: claimedByOther ? "default" : "pointer",
+                borderRadius: 10, cursor: "pointer",
                 border: claimedByMe ? "2px solid " + G : "2px solid #e0e0e0",
-                background: claimedByMe ? "#f0f7f0" : claimedByOther ? "#f5f5f5" : "white",
+                background: claimedByMe ? "#f0f7f0" : "white",
                 fontFamily: "'Georgia',serif", fontSize: 15,
-                opacity: claimedByOther ? 0.6 : 1,
               }}
               onClick={async () => {
-                if (claimedByOther) return;
                 const ok = await claimPlayer(poolId, name, uid);
                 if (ok) {
                   setMyName(name);
                   localStorage.setItem("pga-pool-name", name);
                   notify("You are " + name + "!");
                 } else {
-                  notify("Name already taken!");
+                  notify("Couldn't claim name, try again");
                 }
               }}
             >
-              <span style={{ fontWeight: 700, color: claimedByMe ? G : claimedByOther ? "#aaa" : GD }}>{name}</span>
-              <span style={{ fontSize: 12, color: claimedByMe ? G : claimedByOther ? "#aaa" : "#999" }}>
-                {claimedByMe ? "You" : isClaimed ? "Taken" : "Tap to claim"}
+              <span style={{ fontWeight: 700, color: claimedByMe ? G : claimedByOther ? "#888" : GD }}>{name}</span>
+              <span style={{ fontSize: 12, color: claimedByMe ? G : claimedByOther ? "#888" : "#999" }}>
+                {claimedByMe ? "You" : claimedByOther ? "Claimed — tap to reclaim" : "Tap to claim"}
               </span>
             </button>
           );
