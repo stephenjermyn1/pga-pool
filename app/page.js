@@ -1,13 +1,10 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import { savePool, loadPool, subscribePool } from "../lib/firebase";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer } from "../lib/firebase";
 
 const G = "#006747", GD = "#004d35", GOLD = "#d4af37", CREAM = "#fdf8e8";
 const BOARD_GREEN = "#1a472a", BOARD_DARK = "#0f2d1a", BOARD_YELLOW = "#f4d03f", BOARD_RED = "#e74c3c";
 const PICKS = 5, BEST_OF = 3, WINNER_BONUS = -10, MC_SCORE = 80, PAR = 72;
-
-// Pool ID — change this for each new tournament/pool
-const POOL_ID = "arnold-palmer-2026";
 
 function fmtPar(val) {
   if (val == null || val === "") return "—";
@@ -36,6 +33,14 @@ function shuffle(a) { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math
 function snake(p, r) { const o=[]; for(let i=0;i<r;i++) o.push(...(i%2===0?p:[...p].reverse())); return o; }
 
 export default function App() {
+  // --- Identity ---
+  const [uid, setUid] = useState(null);
+  const [poolId, setPoolId] = useState(null);
+  const [joinCode, setJoinCode] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [myName, setMyName] = useState(null); // claimed player name
+
+  // --- Pool state ---
   const [screen, setScreen] = useState("loading");
   const [players, setPlayers] = useState([]);
   const [draftOrder, setDraftOrder] = useState([]);
@@ -49,7 +54,10 @@ export default function App() {
   const [espnEvents, setEspnEvents] = useState([]);
   const [tournamentDone, setTournamentDone] = useState(false);
   const [tournamentWinner, setTournamentWinner] = useState(null);
+  const [claims, setClaims] = useState({});
+  const [adminUid, setAdminUid] = useState(null);
 
+  // --- UI state ---
   const [names, setNames] = useState(["", "", "", ""]);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState(null);
@@ -61,52 +69,119 @@ export default function App() {
   const [showFullLB, setShowFullLB] = useState(false);
   const [golferDetail, setGolferDetail] = useState(null);
   const [showEventPicker, setShowEventPicker] = useState(false);
+  const [joinInput, setJoinInput] = useState("");
+  const [joinErr, setJoinErr] = useState("");
+
+  const unsubRef = useRef(null);
 
   const notify = useCallback((m) => { setToast(m); setTimeout(() => setToast(null), 2500); }, []);
 
-  // ---- Firebase: Load initial state + subscribe to real-time updates ----
+  // ---- Init auth + check for returning user / URL pool code ----
   useEffect(() => {
-    let unsubscribe;
     (async () => {
-      const saved = await loadPool(POOL_ID);
-      if (saved) {
-        setPlayers(saved.players || []);
-        setDraftOrder(saved.draftOrder || []);
-        setPickIdx(saved.pickIdx || 0);
-        setPicks(saved.picks || {});
-        setDraftDone(saved.draftDone || false);
-        setEventName(saved.eventName || "");
-        setSelectedEvent(saved.selectedEvent || 0);
-        setScreen(saved.draftDone ? "leaderboard" : saved.players?.length > 0 ? "draft" : "setup");
-      } else {
-        setScreen("setup");
-      }
+      const userId = await initAuth();
+      setUid(userId);
 
-      // Subscribe to real-time changes from other users
-      unsubscribe = subscribePool(POOL_ID, (data) => {
-        if (data) {
-          setPlayers(data.players || []);
-          setDraftOrder(data.draftOrder || []);
-          setPickIdx(data.pickIdx || 0);
-          setPicks(data.picks || {});
-          setDraftDone(data.draftDone || false);
-          setEventName(data.eventName || "");
+      // Check URL for ?pool=JOINCODE
+      const params = new URLSearchParams(window.location.search);
+      const urlCode = params.get("pool");
+
+      // Check localStorage for returning user
+      const savedPoolId = localStorage.getItem("pga-pool-id");
+
+      if (urlCode) {
+        // URL join code takes priority
+        const pid = await lookupJoinCode(urlCode);
+        if (pid) {
+          await enterPool(pid, userId);
+        } else {
+          setScreen("home");
+          notify("Invalid join code");
         }
-      });
+      } else if (savedPoolId) {
+        // Returning user — try to reload their pool
+        const data = await loadPool(savedPoolId);
+        if (data) {
+          await enterPool(savedPoolId, userId);
+        } else {
+          localStorage.removeItem("pga-pool-id");
+          localStorage.removeItem("pga-pool-name");
+          setScreen("home");
+        }
+      } else {
+        setScreen("home");
+      }
     })();
-    return () => { if (unsubscribe) unsubscribe(); };
-  }, []);
+    return () => { if (unsubRef.current) unsubRef.current(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- Firebase: Save state changes ----
+  // ---- Enter a pool: load data, subscribe, figure out identity ----
+  const enterPool = useCallback(async (pid, userId) => {
+    const data = await loadPool(pid);
+    if (!data) return;
+
+    // Unsubscribe from any previous pool
+    if (unsubRef.current) unsubRef.current();
+
+    setPoolId(pid);
+    setJoinCode(data.joinCode || "");
+    setAdminUid(data.adminUid || null);
+    setIsAdmin(data.adminUid === userId);
+    setClaims(data.claims || {});
+    applyPoolData(data);
+
+    // Check if this user has a claim
+    const claimedName = Object.entries(data.claims || {}).find(([, v]) => v === userId)?.[0] || null;
+    setMyName(claimedName);
+
+    // Save to localStorage
+    localStorage.setItem("pga-pool-id", pid);
+    if (claimedName) localStorage.setItem("pga-pool-name", claimedName);
+
+    // Decide which screen
+    if (!claimedName) {
+      setScreen("join");
+    } else if (data.draftDone) {
+      setScreen("leaderboard");
+    } else if (data.players?.length > 0) {
+      setScreen("draft");
+    } else {
+      setScreen("join");
+    }
+
+    // Subscribe to real-time changes
+    unsubRef.current = subscribePool(pid, (snap) => {
+      if (snap) {
+        applyPoolData(snap);
+        setClaims(snap.claims || {});
+        setAdminUid(snap.adminUid || null);
+        setIsAdmin(snap.adminUid === userId);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function applyPoolData(data) {
+    setPlayers(data.players || []);
+    setDraftOrder(data.draftOrder || []);
+    setPickIdx(data.pickIdx || 0);
+    setPicks(data.picks || {});
+    setDraftDone(data.draftDone || false);
+    setEventName(data.eventName || "");
+    setSelectedEvent(data.selectedEvent || 0);
+  }
+
+  // ---- Save state changes ----
   const saveState = useCallback((overrides = {}) => {
+    if (!poolId) return;
     const state = {
       players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent,
+      joinCode, adminUid, claims,
       ...overrides,
     };
-    savePool(POOL_ID, state);
-  }, [players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent]);
+    savePool(poolId, state);
+  }, [poolId, players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent, joinCode, adminUid, claims]);
 
-  // ---- Fetch ESPN via our server-side API route ----
+  // ---- Fetch ESPN ----
   const fetchESPN = useCallback(async (evIdx) => {
     setIsLoading(true); setFetchErr(null);
     try {
@@ -117,7 +192,6 @@ export default function App() {
 
       if (data.error) { setFetchErr(data.error); setIsLoading(false); return null; }
 
-      // If multiple events and no specific index, show picker
       if (data.events?.length > 1 && evIdx == null) {
         setEspnEvents(data.events);
         setShowEventPicker(true);
@@ -147,7 +221,7 @@ export default function App() {
   // Auto-fetch on leaderboard
   useEffect(() => {
     if (screen === "leaderboard") fetchESPN(selectedEvent);
-  }, [screen]);
+  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Pool Leaderboard ----
   const poolLB = (() => {
@@ -175,7 +249,6 @@ export default function App() {
       const hasW = myGolfers.some(g => g.isWinner);
       if (hasW) cp += WINNER_BONUS;
       const hasScores = myGolfers.some(g => g.found && g.holesPlayed > 0);
-      // Per-round scores for the current overall top 3 (counting) golfers
       const countingGolfers = counting.filter(g => g.found);
       const roundScores = [0, 1, 2, 3].map(ri => {
         const vals = countingGolfers.map(g => {
@@ -202,6 +275,18 @@ export default function App() {
     });
   })();
 
+  // ---- Helpers ----
+  const claimedCount = Object.values(claims).filter(Boolean).length;
+  const drafter = draftOrder[pickIdx];
+  const canPick = uid && (
+    (claims[drafter] === uid) || isAdmin
+  );
+
+  const copyInviteLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}?pool=${joinCode}`;
+    navigator.clipboard.writeText(url).then(() => notify("Invite link copied!")).catch(() => notify("Couldn't copy"));
+  };
+
   // ---- Event Picker ----
   const EventPicker = showEventPicker ? (
     <div style={S.overlay}>
@@ -225,7 +310,7 @@ export default function App() {
   if (golferDetail) {
     const g = espnField.find(f => f.name === golferDetail) || espnField.find(f => f.name.toLowerCase().includes(golferDetail.toLowerCase()));
     return (
-      <Shell>
+      <Shell joinCode={poolId ? joinCode : null}>
         <button style={{ ...S.ctrl, marginBottom: 10 }} onClick={() => setGolferDetail(null)}>← Back</button>
         <Card>
           <h2 style={S.title}>{golferDetail}</h2>
@@ -273,10 +358,53 @@ export default function App() {
 
   if (screen === "loading") return <Shell><p style={{ textAlign: "center", color: "#999", padding: 40 }}>Loading...</p></Shell>;
 
-  // ---- SETUP ----
+  // ---- HOME ----
+  if (screen === "home") return (
+    <Shell>
+      <Card>
+        <h2 style={{ ...S.title, textAlign: "center", fontSize: 22, marginBottom: 8 }}>Welcome</h2>
+        <p style={{ ...S.sub, textAlign: "center" }}>Create a new pool or join one with a code.</p>
+
+        <button style={{ ...S.primary, marginBottom: 16 }}
+          onClick={() => setScreen("setup")}>
+          Create a Pool
+        </button>
+
+        <div style={{ borderTop: "1px solid #eee", paddingTop: 16 }}>
+          <h3 style={{ ...S.sec, marginBottom: 8 }}>Join a Pool</h3>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...S.input, letterSpacing: 4, textTransform: "uppercase", textAlign: "center", fontSize: 18, fontWeight: 700 }}
+              placeholder="CODE"
+              maxLength={6}
+              value={joinInput}
+              onChange={e => { setJoinInput(e.target.value.toUpperCase()); setJoinErr(""); }}
+            />
+            <button style={S.smallBtn} disabled={joinInput.length < 6}
+              onClick={async () => {
+                setJoinErr("");
+                const pid = await lookupJoinCode(joinInput);
+                if (pid) {
+                  await enterPool(pid, uid);
+                } else {
+                  setJoinErr("No pool found with that code.");
+                }
+              }}>
+              Join
+            </button>
+          </div>
+          {joinErr && <p style={{ color: "#dc3545", fontSize: 12, marginTop: 6 }}>{joinErr}</p>}
+        </div>
+      </Card>
+      <Toast msg={toast} />
+    </Shell>
+  );
+
+  // ---- SETUP (Create Pool) ----
   if (screen === "setup") return (
     <Shell>
       <Card>
+        <button style={{ ...S.ctrl, marginBottom: 10 }} onClick={() => setScreen("home")}>← Back</button>
         <h2 style={S.title}>Set Up Your Pool</h2>
         <p style={S.sub}>Enter everyone's name. Draft order will be randomised.</p>
         {names.map((n, i) => (
@@ -295,23 +423,105 @@ export default function App() {
             const shuffled = shuffle(valid);
             const order = snake(shuffled, PICKS);
             const p = {}; shuffled.forEach(n => p[n] = []);
-            setPlayers(shuffled);
-            setDraftOrder(order);
-            setPickIdx(0);
-            setPicks(p);
-            setDraftDone(false);
-            // Fetch field
-            const result = await fetchESPN(null);
-            if (result || espnField.length > 0) {
-              saveState({ players: shuffled, draftOrder: order, pickIdx: 0, picks: p, draftDone: false, eventName: result?.eventName || eventName });
-              notify("Draft order: " + shuffled.join(" → "));
-              setScreen("draft");
+            const claimsInit = {}; shuffled.forEach(n => claimsInit[n] = null);
+
+            // Create pool in Firebase
+            const result = await createPool(uid, {
+              players: shuffled,
+              draftOrder: order,
+              pickIdx: 0,
+              picks: p,
+              draftDone: false,
+              eventName: "",
+              selectedEvent: 0,
+              claims: claimsInit,
+            });
+
+            if (!result) {
+              notify("Failed to create pool");
+              return;
             }
+
+            // Enter the newly created pool
+            await enterPool(result.poolId, uid);
+            notify("Pool created! Share code: " + result.joinCode);
           }}>
-          🎲 Randomise & Start Draft
+          Create Pool
         </button>
-        {isLoading && <p style={{ fontSize: 12, color: "#888", marginTop: 8, textAlign: "center" }}>Fetching field from ESPN...</p>}
-        {fetchErr && <p style={{ fontSize: 12, color: "#dc3545", marginTop: 8, textAlign: "center" }}>{fetchErr}</p>}
+        {isLoading && <p style={{ fontSize: 12, color: "#888", marginTop: 8, textAlign: "center" }}>Creating pool...</p>}
+      </Card>
+      <Toast msg={toast} />
+    </Shell>
+  );
+
+  // ---- JOIN (Claim Name) ----
+  if (screen === "join") return (
+    <Shell joinCode={joinCode}>
+      <Card>
+        <h2 style={S.title}>Join Pool</h2>
+        <div style={{ background: CREAM, border: "2px dashed " + GOLD, borderRadius: 10, padding: 16, textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "#888", letterSpacing: 2, marginBottom: 4 }}>POOL CODE</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: GD, letterSpacing: 6 }}>{joinCode}</div>
+          <button style={{ ...S.ctrl, marginTop: 8, fontSize: 11 }} onClick={copyInviteLink}>Copy Invite Link</button>
+        </div>
+
+        <p style={{ ...S.sub, marginBottom: 12 }}>{claimedCount} of {players.length} players joined. Tap your name to claim it.</p>
+
+        {players.map(name => {
+          const claimedByMe = claims[name] === uid;
+          const claimedByOther = claims[name] && claims[name] !== uid;
+          const isClaimed = !!claims[name];
+          return (
+            <button
+              key={name}
+              disabled={claimedByOther}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                width: "100%", padding: "14px 16px", marginBottom: 8,
+                borderRadius: 10, cursor: claimedByOther ? "default" : "pointer",
+                border: claimedByMe ? "2px solid " + G : "2px solid #e0e0e0",
+                background: claimedByMe ? "#f0f7f0" : claimedByOther ? "#f5f5f5" : "white",
+                fontFamily: "'Georgia',serif", fontSize: 15,
+                opacity: claimedByOther ? 0.6 : 1,
+              }}
+              onClick={async () => {
+                if (claimedByOther) return;
+                const ok = await claimPlayer(poolId, name, uid);
+                if (ok) {
+                  setMyName(name);
+                  localStorage.setItem("pga-pool-name", name);
+                  notify("You are " + name + "!");
+                } else {
+                  notify("Name already taken!");
+                }
+              }}
+            >
+              <span style={{ fontWeight: 700, color: claimedByMe ? G : claimedByOther ? "#aaa" : GD }}>{name}</span>
+              <span style={{ fontSize: 12, color: claimedByMe ? G : claimedByOther ? "#aaa" : "#999" }}>
+                {claimedByMe ? "You" : isClaimed ? "Taken" : "Tap to claim"}
+              </span>
+            </button>
+          );
+        })}
+
+        {myName && (
+          <button style={{ ...S.primary, marginTop: 12 }}
+            onClick={async () => {
+              // Fetch field then go to draft
+              const result = await fetchESPN(null);
+              if (result || espnField.length > 0) {
+                if (result?.eventName) {
+                  await updatePool(poolId, { eventName: result.eventName, selectedEvent: selectedEvent });
+                }
+                setScreen(draftDone ? "leaderboard" : "draft");
+              } else if (!showEventPicker) {
+                // Even without ESPN data, allow continuing
+                setScreen(draftDone ? "leaderboard" : "draft");
+              }
+            }}>
+            {draftDone ? "Go to Leaderboard" : "Continue to Draft"}
+          </button>
+        )}
       </Card>
       {EventPicker}<Toast msg={toast} />
     </Shell>
@@ -319,7 +529,6 @@ export default function App() {
 
   // ---- DRAFT ----
   if (screen === "draft") {
-    const drafter = draftOrder[pickIdx];
     const allPicked = Object.values(picks).flat();
     const available = espnField.map(f => f.name).filter(g => !allPicked.includes(g));
     const filtered = search ? available.filter(g => g.toLowerCase().includes(search.toLowerCase())) : available;
@@ -328,6 +537,7 @@ export default function App() {
     const displayPickIdx = Math.min(pickIdx, total);
 
     const doPick = (golfer) => {
+      if (!canPick) { notify("It's not your turn!"); return; }
       if (allPicked.includes(golfer)) { notify("Already picked!"); return; }
       const u = { ...picks }; u[drafter] = [...(u[drafter] || []), golfer];
       const next = pickIdx + 1;
@@ -335,28 +545,28 @@ export default function App() {
       setPicks(u); setPickIdx(next); setSearch("");
       if (done) setDraftDone(true);
       saveState({ picks: u, pickIdx: next, draftDone: done });
-      notify(done ? "Draft complete! 🎉" : drafter + " picked " + golfer);
+      notify(done ? "Draft complete!" : drafter + " picked " + golfer);
     };
 
     if (draftDone) return (
-      <Shell>
+      <Shell joinCode={joinCode}>
         <Card>
           <h2 style={{ ...S.title, color: G, textAlign: "center" }}>Draft Complete!</h2>
           <p style={{ ...S.sub, textAlign: "center", fontWeight: 600 }}>{eventName}</p>
           {players.map(p => (
             <div key={p} style={S.teamCard}>
-              <div style={S.teamName}>{p}</div>
+              <div style={S.teamName}>{p} {claims[p] === uid && <span style={{ fontSize: 11, color: GOLD }}>(You)</span>}</div>
               {(picks[p] || []).map((g, i) => (<div key={g} style={{ fontSize: 13, padding: "3px 0", color: "#333" }}><span style={{ color: G, fontWeight: 700, fontSize: 12, marginRight: 6 }}>#{i + 1}</span>{g}</div>))}
             </div>
           ))}
-          <button style={S.primary} onClick={() => setScreen("leaderboard")}>🏆 Go to Leaderboard</button>
+          <button style={S.primary} onClick={() => setScreen("leaderboard")}>Go to Leaderboard</button>
         </Card>
         {EventPicker}<Toast msg={toast} />
       </Shell>
     );
 
     return (
-      <Shell>
+      <Shell joinCode={joinCode}>
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={S.badge}>Round {round}/{PICKS}</span>
@@ -365,11 +575,24 @@ export default function App() {
           <div style={S.bar}><div style={{ ...S.barFill, width: (displayPickIdx / total) * 100 + "%" }} /></div>
           {eventName && <p style={{ margin: "8px 0 0", fontSize: 13, color: "#666" }}>{eventName}</p>}
         </Card>
+
         <div style={S.pickerCard}>
           <div style={{ fontSize: 11, letterSpacing: 3, color: GOLD, fontWeight: 700 }}>NOW PICKING</div>
           <div style={{ fontSize: 26, fontWeight: 700, color: "white", margin: "4px 0" }}>{drafter}</div>
           <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>Pick {(picks[drafter]?.length || 0) + 1} of {PICKS}</div>
+          {/* Authorization message */}
+          {!canPick && (
+            <div style={{ marginTop: 8, padding: "6px 12px", background: "rgba(255,255,255,0.15)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
+              Waiting for {drafter} to pick...
+            </div>
+          )}
+          {canPick && isAdmin && claims[drafter] !== uid && (
+            <div style={{ marginTop: 8, padding: "6px 12px", background: "rgba(212,175,55,0.25)", borderRadius: 8, fontSize: 12, color: GOLD }}>
+              Admin: picking on behalf of {drafter}
+            </div>
+          )}
         </div>
+
         <Card>
           <h3 style={S.sec}>Snake Draft Order</h3>
           <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 }}>
@@ -384,21 +607,26 @@ export default function App() {
             ))}
           </div>
         </Card>
+
         <Card>
           <h3 style={S.sec}>Teams So Far</h3>
           {players.map(p => (<div key={p} style={{ display: "flex", gap: 6, padding: "5px 0", borderBottom: "1px solid #f0f0f0", fontSize: 13 }}>
-            <span style={{ fontWeight: 600, color: GD, minWidth: 70 }}>{p}</span>
+            <span style={{ fontWeight: 600, color: GD, minWidth: 70 }}>{p} {claims[p] === uid && <span style={{ color: GOLD, fontSize: 10 }}>(You)</span>}</span>
             <span style={{ color: "#555" }}>{(picks[p] || []).join(", ") || "—"}</span></div>))}
         </Card>
-        <Card>
-          <h3 style={S.sec}>Available Golfers ({available.length})</h3>
-          <input style={S.searchInput} placeholder="🔍 Search golfers..." value={search} onChange={e => setSearch(e.target.value)} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, maxHeight: 350, overflowY: "auto" }}>
-            {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => doPick(golfer)}>{golfer}</button>))}
-          </div>
-          {espnField.length === 0 && <button style={{ ...S.primary, marginTop: 10, fontSize: 13, padding: "10px 16px" }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>{isLoading ? "⏳ Fetching..." : "🔄 Fetch Field from ESPN"}</button>}
-        </Card>
-        {pickIdx > 0 && <button style={S.undo} onClick={() => {
+
+        {canPick && (
+          <Card>
+            <h3 style={S.sec}>Available Golfers ({available.length})</h3>
+            <input style={S.searchInput} placeholder="Search golfers..." value={search} onChange={e => setSearch(e.target.value)} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, maxHeight: 350, overflowY: "auto" }}>
+              {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => doPick(golfer)}>{golfer}</button>))}
+            </div>
+            {espnField.length === 0 && <button style={{ ...S.primary, marginTop: 10, fontSize: 13, padding: "10px 16px" }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>{isLoading ? "Fetching..." : "Fetch Field from ESPN"}</button>}
+          </Card>
+        )}
+
+        {isAdmin && pickIdx > 0 && <button style={S.undo} onClick={() => {
           const prev = pickIdx - 1, pd = draftOrder[prev];
           const u = { ...picks }; u[pd] = (u[pd] || []).slice(0, -1);
           setPicks(u); setPickIdx(prev); setDraftDone(false);
@@ -412,25 +640,33 @@ export default function App() {
 
   // ---- LEADERBOARD ----
   if (screen === "leaderboard") return (
-    <Shell>
+    <Shell joinCode={joinCode}>
       <div style={S.eventBanner}>
         <div style={{ fontSize: 11, letterSpacing: 2, color: GOLD, fontWeight: 700 }}>
-          {tournamentDone ? "🏁 FINAL" : espnField.some(f => f.holesPlayed > 0) ? "🔴 LIVE" : "LEADERBOARD"}
+          {tournamentDone ? "FINAL" : espnField.some(f => f.holesPlayed > 0) ? "LIVE" : "LEADERBOARD"}
         </div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "white" }}>{eventName}</div>
         {eventDetail && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 }}>{eventDetail}</div>}
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <button style={{ ...S.ctrl, opacity: isLoading ? 0.5 : 1 }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>
-          {isLoading ? "⏳" : "🔄"} Refresh
+          {isLoading ? "..." : "Refresh"}
         </button>
         <button style={{ ...S.ctrl, background: showFullLB ? G : "white", color: showFullLB ? "white" : GD }} onClick={() => setShowFullLB(!showFullLB)}>
-          📊 {showFullLB ? "Pool View" : "Tournament"}
+          {showFullLB ? "Pool View" : "Tournament"}
         </button>
-        <button style={S.ctrl} onClick={() => setShowRules(!showRules)}>📋 Rules</button>
-        <button style={S.ctrl} onClick={() => setScreen("draft")}>📝 Draft</button>
-        <button style={{ ...S.ctrl, marginLeft: "auto", color: "#dc3545", borderColor: "#dc3545" }}
-          onClick={() => { if (confirm("Reset everything?")) { savePool(POOL_ID, null); setPlayers([]); setDraftOrder([]); setPickIdx(0); setPicks({}); setDraftDone(false); setEspnField([]); setEventName(""); setNames(["", "", "", ""]); setScreen("setup"); } }}>🗑️</button>
+        <button style={S.ctrl} onClick={() => setShowRules(!showRules)}>Rules</button>
+        <button style={S.ctrl} onClick={() => setScreen("draft")}>Draft</button>
+        <button style={S.ctrl} onClick={copyInviteLink}>Share</button>
+        {isAdmin && (
+          <button style={{ ...S.ctrl, marginLeft: "auto", color: "#dc3545", borderColor: "#dc3545" }}
+            onClick={() => { if (confirm("Reset everything? This cannot be undone.")) {
+              savePool(poolId, null);
+              localStorage.removeItem("pga-pool-id");
+              localStorage.removeItem("pga-pool-name");
+              setPoolId(null); setPlayers([]); setDraftOrder([]); setPickIdx(0); setPicks({}); setDraftDone(false); setEspnField([]); setEventName(""); setNames(["", "", "", ""]); setMyName(null); setJoinCode(""); setScreen("home");
+            } }}>Reset</button>
+        )}
       </div>
       {lastUpdated && <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}>Updated: {lastUpdated}</div>}
       {fetchErr && <div style={{ fontSize: 12, color: "#dc3545", marginBottom: 8 }}>{fetchErr}</div>}
@@ -448,7 +684,7 @@ export default function App() {
           </div>
         </Card>
       )}
-      {tournamentWinner && <div style={S.winnerBanner}>🏆 Champion: {tournamentWinner}</div>}
+      {tournamentWinner && <div style={S.winnerBanner}>Champion: {tournamentWinner}</div>}
 
       {showFullLB ? (
         <Card>
@@ -473,20 +709,18 @@ export default function App() {
       ) : (<>
         {/* Masters-style scoreboard */}
         <div style={{ background: BOARD_GREEN, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.4)", border: "3px solid #2d5a3d", marginBottom: 12 }}>
-          {/* LEADERS header */}
           <div style={{ background: BOARD_DARK, padding: "10px 16px", textAlign: "center", borderBottom: "2px solid #2d5a3d" }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: BOARD_YELLOW, letterSpacing: 6, fontFamily: "'Georgia',serif", textTransform: "uppercase" }}>LEADERS</div>
           </div>
-          {/* Column headers */}
           <div style={{ display: "flex", padding: "8px 12px 4px", borderBottom: "1px solid rgba(255,255,255,0.15)", alignItems: "center" }}>
             <div style={{ width: 28, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", textAlign: "center" }}></div>
             <div style={{ flex: 2, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: 1 }}>Player</div>
             {[1, 2, 3, 4].map(r => <div key={r} style={{ flex: 0.45, textAlign: "center", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)" }}>R{r}</div>)}
             <div style={{ flex: 0.6, textAlign: "right", fontSize: 10, fontWeight: 700, color: BOARD_YELLOW, letterSpacing: 1 }}>TOTAL</div>
           </div>
-          {/* Player rows */}
           {poolLB.map((e, idx) => {
             const isExp = expanded === e.name;
+            const isMe = claims[e.name] === uid;
             const scoreColor = e.hasScores ? (e.combinedPar < 0 ? BOARD_RED : e.combinedPar > 0 ? "rgba(255,255,255,0.9)" : BOARD_YELLOW) : "rgba(255,255,255,0.3)";
             return (
               <div key={e.name}>
@@ -498,7 +732,7 @@ export default function App() {
                   <div style={{ width: 28, fontSize: 14, fontWeight: 700, color: BOARD_YELLOW, textAlign: "center" }}>{idx + 1}</div>
                   <div style={{ flex: 2 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "rgba(255,255,255,0.95)", fontFamily: "'Georgia',serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                      {e.name}
+                      {e.name} {isMe && <span style={{ fontSize: 10, color: GOLD }}>(You)</span>}
                     </div>
                     {!isExp && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{e.counting.join(", ")}</div>}
                   </div>
@@ -515,7 +749,6 @@ export default function App() {
                     {e.hasWinner && <div style={{ fontSize: 9, color: BOARD_YELLOW, fontWeight: 700 }}>−10 BONUS</div>}
                   </div>
                 </div>
-                {/* Expanded golfer detail */}
                 {isExp && (
                   <div style={{ background: "rgba(0,0,0,0.15)", padding: "6px 12px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)" }} onClick={ev => ev.stopPropagation()}>
                     {e.golfers.map(g => {
@@ -557,20 +790,27 @@ export default function App() {
       {EventPicker}<Toast msg={toast} />
     </Shell>
   );
+
   return <Shell><p>Something went wrong.</p></Shell>;
 }
 
 // ============================================================
-function Shell({ children }) {
+function Shell({ children, joinCode }) {
   return (
     <div style={{ fontFamily: "'Georgia','Palatino',serif", maxWidth: 680, margin: "0 auto", padding: "0 10px 50px", background: CREAM, minHeight: "100vh" }}>
       <div style={{ background: "linear-gradient(135deg," + G + "," + GD + ")", margin: "0 -10px", padding: "18px", marginBottom: 16, boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 32, background: "rgba(255,255,255,0.12)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>⛳</div>
-          <div>
+          <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: GOLD, letterSpacing: 2.5 }}>PGA TOUR POOL</h1>
             <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", letterSpacing: 1 }}>Snake Draft & Live Leaderboard</p>
           </div>
+          {joinCode && (
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", letterSpacing: 1 }}>CODE</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: GOLD, letterSpacing: 2 }}>{joinCode}</div>
+            </div>
+          )}
         </div>
       </div>
       {children}
