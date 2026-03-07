@@ -102,7 +102,10 @@ export async function GET(request) {
       // - The tournament leaders have completed 3+ rounds (meaning R3 has started)
       // - This player only has 2 or fewer completed rounds
       // - This player has actually played some holes (not a WD before starting)
-      if (globalMaxCompleted >= 3 && roundsCompleted <= 2 && totalHolesPlayed > 0) {
+      // - This player is NOT currently playing round 3 (has no holes in R3)
+      const r3Holes = rounds[2]?.holesPlayed || 0;
+      const r3InProgress = roundsCompleted <= 2 && r3Holes > 0;
+      if (globalMaxCompleted >= 3 && roundsCompleted <= 2 && totalHolesPlayed > 0 && !r3InProgress) {
         status = "cut";
       }
 
