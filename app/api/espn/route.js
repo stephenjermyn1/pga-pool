@@ -69,6 +69,9 @@ export async function GET(request) {
 
     comp.competitors.forEach((c) => {
       const name = c.athlete?.displayName || "Unknown";
+      const athleteId = c.id || null;
+      const countryFlag = c.athlete?.flag?.href || null;
+      const country = c.athlete?.flag?.alt || null;
       const scoreToPar = c.score || "E";
       const order = c.order || 999;
 
@@ -110,7 +113,7 @@ export async function GET(request) {
       }
 
       field.push({
-        name, scoreToPar, order, rounds, holeByHole, status,
+        name, athleteId, countryFlag, country, scoreToPar, order, rounds, holeByHole, status,
         holesPlayed: totalHolesPlayed, roundsCompleted, teeTime,
       });
     });

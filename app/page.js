@@ -63,6 +63,8 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [showRules, setShowRules] = useState(false);
+  const [athleteProfile, setAthleteProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [fetchErr, setFetchErr] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -306,21 +308,92 @@ export default function App() {
     </div>
   ) : null;
 
+  // ---- Fetch athlete profile on demand ----
+  useEffect(() => {
+    if (!golferDetail) { setAthleteProfile(null); return; }
+    const g = espnField.find(f => f.name === golferDetail) || espnField.find(f => f.name.toLowerCase().includes(golferDetail.toLowerCase()));
+    if (!g?.athleteId) return;
+    setProfileLoading(true);
+    fetch(`/api/espn/athlete?id=${g.athleteId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { setAthleteProfile(data); setProfileLoading(false); })
+      .catch(() => setProfileLoading(false));
+  }, [golferDetail, espnField]);
+
   // ---- GOLFER DETAIL ----
   if (golferDetail) {
     const g = espnField.find(f => f.name === golferDetail) || espnField.find(f => f.name.toLowerCase().includes(golferDetail.toLowerCase()));
+    const p = athleteProfile;
     return (
       <Shell joinCode={poolId ? joinCode : null}>
         <button style={{ ...S.ctrl, marginBottom: 10 }} onClick={() => setGolferDetail(null)}>← Back</button>
+
+        {/* Profile header card */}
         <Card>
-          <h2 style={S.title}>{golferDetail}</h2>
-          {g ? (<>
-            <div style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 14 }}>
+            {/* Headshot */}
+            <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", background: "#f0f0f0", border: "3px solid " + G, flexShrink: 0 }}>
+              {(p?.headshot || g?.athleteId) ? (
+                <img
+                  src={p?.headshot || `https://a.espncdn.com/i/headshots/golf/players/full/${g.athleteId}.png`}
+                  alt={golferDetail}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  onError={e => { e.target.style.display = "none"; }}
+                />
+              ) : (
+                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "#ccc" }}>⛳</div>
+              )}
+            </div>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ ...S.title, fontSize: 20, marginBottom: 2 }}>{golferDetail}</h2>
+              {/* Country + flag */}
+              {(p?.country || g?.country) && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  {(p?.countryFlag || g?.countryFlag) && <img src={p?.countryFlag || g?.countryFlag} alt="" style={{ width: 18, height: 12, objectFit: "cover", borderRadius: 2 }} />}
+                  <span style={{ fontSize: 13, color: "#666" }}>{p?.country || g?.country}</span>
+                </div>
+              )}
+              {/* Bio details */}
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: "#888" }}>
+                {p?.age && <span>Age {p.age}</span>}
+                {p?.hand && <span>{p.hand}-handed</span>}
+                {p?.college && <span>{p.college}</span>}
+              </div>
+              {profileLoading && <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>Loading profile...</div>}
+            </div>
+          </div>
+
+          {/* Tournament stats row */}
+          {g ? (
+            <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", justifyContent: "center" }}>
               <Stat label="Overall" value={g.scoreToPar} color={parClr(g.scoreToPar)} />
               <Stat label="Position" value={g.order} color={GD} />
               <Stat label="Thru" value={g.holesPlayed > 0 ? g.holesPlayed : "—"} color={GD} />
               {g.status === "cut" && <Stat label="Status" value="MC" color="#dc3545" />}
             </div>
+          ) : null}
+        </Card>
+
+        {/* Season stats card */}
+        {p?.seasonStats && Object.keys(p.seasonStats).length > 0 && (
+          <Card>
+            <h3 style={S.sec}>2026 Season</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {Object.entries(p.seasonStats).map(([key, st]) => (
+                <div key={key} style={{ background: "#f8f9fa", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>{st.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: GD }}>{st.value}</div>
+                  {st.rank && <div style={{ fontSize: 10, color: GOLD }}>Rank: {st.rank}</div>}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Round scores */}
+        {g ? (
+          <Card>
+            <h3 style={S.sec}>Rounds</h3>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
               {g.rounds.map((r, i) => (
                 <div key={i} style={{ background: r.isComplete ? "#f0f7f0" : r.holesPlayed > 0 ? "#fff8e1" : "#f5f5f5", borderRadius: 8, padding: "8px 14px", textAlign: "center", flex: 1, minWidth: 60 }}>
@@ -332,6 +405,8 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {/* Hole-by-hole scorecards */}
             {g.holeByHole.map((holes, ri) => {
               if (!holes.length) return null;
               return (
@@ -349,8 +424,8 @@ export default function App() {
                 </div>
               );
             })}
-          </>) : <p style={{ color: "#999" }}>No data found for this golfer.</p>}
-        </Card>
+          </Card>
+        ) : <Card><p style={{ color: "#999" }}>No data found for this golfer.</p></Card>}
         {EventPicker}<Toast msg={toast} />
       </Shell>
     );
