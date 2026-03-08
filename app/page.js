@@ -874,9 +874,9 @@ const CHART_COLORS = ["#006747", "#d4af37", "#dc3545", "#2196F3", "#FF9800", "#9
 
 function PositionChart({ poolLB, uid, claims }) {
   const numPlayers = poolLB.length;
-  const [animRound, setAnimRound] = useState(-1); // -1 = show all, 0+ = animating to that round
+  const [animT, setAnimT] = useState(-1); // -1 = show all, 0..numRounds-1 = continuous progress
   const [playing, setPlaying] = useState(false);
-  const timerRef = useRef(null);
+  const rafRef = useRef(null);
 
   // Compute cumulative scores after each round
   const { roundLabels, scoreData, scoreMin, scoreMax } = useMemo(() => {
@@ -897,7 +897,6 @@ function PositionChart({ poolLB, uid, claims }) {
         if (val != null) { sMin = Math.min(sMin, val); sMax = Math.max(sMax, val); }
       });
     }
-    // Add padding so dots don't sit on edges
     if (sMin === sMax) { sMin -= 2; sMax += 2; }
     else { const pad = Math.max(1, Math.ceil((sMax - sMin) * 0.12)); sMin -= pad; sMax += pad; }
     return { roundLabels: rl, scoreData: sd, scoreMin: sMin, scoreMax: sMax };
@@ -905,28 +904,31 @@ function PositionChart({ poolLB, uid, claims }) {
 
   const numRounds = roundLabels.length;
 
-  // Clean up timer on unmount
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  // Clean up on unmount
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
-  // Animation playback
+  // Smooth animation using requestAnimationFrame
   const play = useCallback(() => {
     if (numRounds <= 1) return;
     setPlaying(true);
-    setAnimRound(0);
-    let step = 0;
-    const advance = () => {
-      step++;
-      if (step >= numRounds) {
-        timerRef.current = setTimeout(() => {
-          setAnimRound(-1);
-          setPlaying(false);
-        }, 1200);
-        return;
+    const duration = numRounds * 1800; // ms total
+    const startTime = performance.now();
+
+    const tick = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease-in-out
+      const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      const t = eased * (numRounds - 1);
+      setAnimT(t);
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        // Hold on final, then show all
+        setTimeout(() => { setAnimT(-1); setPlaying(false); }, 1000);
       }
-      setAnimRound(step);
-      timerRef.current = setTimeout(advance, 1400);
     };
-    timerRef.current = setTimeout(advance, 1400);
+    rafRef.current = requestAnimationFrame(tick);
   }, [numRounds]);
 
   if (numPlayers === 0 || numRounds === 0) return null;
@@ -940,21 +942,28 @@ function PositionChart({ poolLB, uid, claims }) {
   const getX = (ri) => padL + (numRounds > 1 ? ri * (chartW / (numRounds - 1)) : chartW / 2);
   const getY = (score) => padT + ((score - scoreMin) / (scoreMax - scoreMin)) * chartH;
 
-  // Determine visible round range
-  const showUpTo = animRound >= 0 ? animRound : numRounds - 1;
-  const isAnimating = animRound >= 0;
+  // Interpolate a player's score at continuous time t
+  const interpScore = (scores, t) => {
+    const lo = Math.floor(t), hi = Math.ceil(t);
+    const sLo = scores[lo], sHi = scores[hi];
+    if (sLo == null) return sHi;
+    if (sHi == null || lo === hi) return sLo;
+    const frac = t - lo;
+    return sLo + (sHi - sLo) * frac;
+  };
 
-  // Y-axis tick marks: integer par values within range
+  const isAnimating = animT >= 0;
+  const showUpTo = isAnimating ? animT : numRounds - 1;
+
+  // Y-axis tick marks
   const yTicks = [];
   const tickMin = Math.ceil(scoreMin);
   const tickMax = Math.floor(scoreMax);
   const range = tickMax - tickMin;
-  // Choose tick interval to avoid clutter (aim for ~5-8 ticks)
   const tickInterval = range <= 8 ? 1 : range <= 16 ? 2 : range <= 30 ? 5 : 10;
   for (let v = tickMin; v <= tickMax; v++) {
     if (v % tickInterval === 0) yTicks.push(v);
   }
-  // Always include E (0) if in range
   if (scoreMin <= 0 && scoreMax >= 0 && !yTicks.includes(0)) yTicks.push(0);
   yTicks.sort((a, b) => a - b);
 
@@ -964,7 +973,7 @@ function PositionChart({ poolLB, uid, claims }) {
         <div>
           <h3 style={{ margin: 0, fontSize: 15, color: GD }}>Score Tracker</h3>
           <p style={{ margin: "2px 0 0", fontSize: 11, color: "#888" }}>
-            {isAnimating ? `After ${roundLabels[showUpTo]}` : "Combined score (best 3) after each round"}
+            {isAnimating ? `After ${roundLabels[Math.min(Math.round(showUpTo), numRounds - 1)]}` : "Combined score (best 3) after each round"}
           </p>
         </div>
         {numRounds > 1 && (
@@ -986,7 +995,7 @@ function PositionChart({ poolLB, uid, claims }) {
       </div>
       <div style={{ overflowX: "auto" }}>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, display: "block", margin: "0 auto" }}>
-          {/* Grid lines + Y-axis labels (score to par) */}
+          {/* Grid lines + Y-axis labels */}
           {yTicks.map(v => {
             const y = getY(v);
             const isEven = v === 0;
@@ -1006,7 +1015,7 @@ function PositionChart({ poolLB, uid, claims }) {
             );
           })}
 
-          {/* X-axis labels (rounds) */}
+          {/* X-axis labels */}
           {roundLabels.map((label, ri) => (
             <text key={"x" + ri} x={getX(ri)} y={H - padB + 20} textAnchor="middle"
               fontSize={12} fontWeight={ri <= showUpTo ? 700 : 400}
@@ -1015,51 +1024,74 @@ function PositionChart({ poolLB, uid, claims }) {
             </text>
           ))}
 
-          {/* Vertical marker for current animated round */}
+          {/* Vertical progress marker during animation */}
           {isAnimating && (
             <line x1={getX(showUpTo)} x2={getX(showUpTo)}
               y1={padT - 5} y2={padT + chartH + 5}
               stroke={GOLD} strokeWidth={2} opacity={0.4} strokeDasharray="4,3" />
           )}
 
-          {/* Player trail lines */}
+          {/* Player trail lines — draw up to current progress */}
           {poolLB.map((p, pi) => {
             const color = CHART_COLORS[pi % CHART_COLORS.length];
             const scores = scoreData[p.name];
             const isMe = claims[p.name] === uid;
 
-            const points = scores
-              .map((s, ri) => (s != null && ri <= showUpTo) ? { x: getX(ri), y: getY(s) } : null)
-              .filter(Boolean);
+            // Collect all completed round points up to showUpTo
+            const trailPoints = [];
+            const maxFullRound = Math.floor(showUpTo);
+            for (let ri = 0; ri <= maxFullRound && ri < scores.length; ri++) {
+              if (scores[ri] != null) trailPoints.push({ x: getX(ri), y: getY(scores[ri]) });
+            }
+            // Add the interpolated current point
+            if (isAnimating && showUpTo > maxFullRound) {
+              const s = interpScore(scores, showUpTo);
+              if (s != null) trailPoints.push({ x: getX(showUpTo), y: getY(s) });
+            }
 
-            if (points.length < 2) return null;
+            if (!isAnimating) {
+              // Show all mode — full trail
+              scores.forEach((s, ri) => { if (s != null) trailPoints.push({ x: getX(ri), y: getY(s) }); });
+            }
 
-            const pathD = points.map((pt, i) => (i === 0 ? "M" : "L") + pt.x + "," + pt.y).join(" ");
+            if (trailPoints.length < 2) return null;
+            // Deduplicate (show-all mode may double-add)
+            const seen = new Set();
+            const uniquePoints = trailPoints.filter(pt => { const k = pt.x + "," + pt.y; if (seen.has(k)) return false; seen.add(k); return true; });
+
+            const pathD = uniquePoints.map((pt, i) => (i === 0 ? "M" : "L") + pt.x.toFixed(1) + "," + pt.y.toFixed(1)).join(" ");
             return (
               <path key={"trail-" + p.name} d={pathD} fill="none" stroke={color}
                 strokeWidth={isMe ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"
-                opacity={isAnimating ? (isMe ? 0.5 : 0.2) : (isMe ? 0.8 : 0.4)} />
+                opacity={isAnimating ? (isMe ? 0.6 : 0.25) : (isMe ? 0.8 : 0.4)} />
             );
           })}
 
-          {/* Player dots — positioned by score, animated with CSS transition */}
+          {/* Player dots — smoothly interpolated position */}
           {poolLB.map((p, pi) => {
             const color = CHART_COLORS[pi % CHART_COLORS.length];
             const scores = scoreData[p.name];
             const isMe = claims[p.name] === uid;
-
-            // In "show all" mode, place dot at last valid round
-            const finalRi = isAnimating ? showUpTo : scores.reduce((last, s, ri) => s != null ? ri : last, 0);
-            const finalScore = scores[finalRi];
-            if (finalScore == null) return null;
-
-            const fx = getX(finalRi);
-            const fy = getY(finalScore);
             const r = isMe ? 14 : 12;
 
+            let fx, fy, displayScore;
+            if (isAnimating) {
+              const s = interpScore(scores, showUpTo);
+              if (s == null) return null;
+              fx = getX(showUpTo);
+              fy = getY(s);
+              displayScore = Math.round(s);
+            } else {
+              const lastRi = scores.reduce((last, s, ri) => s != null ? ri : last, 0);
+              const lastScore = scores[lastRi];
+              if (lastScore == null) return null;
+              fx = getX(lastRi);
+              fy = getY(lastScore);
+              displayScore = lastScore;
+            }
+
             return (
-              <g key={p.name}
-                style={{ transition: "transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)", transform: `translate(${fx}px, ${fy}px)` }}>
+              <g key={p.name} transform={`translate(${fx.toFixed(1)},${fy.toFixed(1)})`}>
                 <circle cx={0} cy={2} r={r} fill="rgba(0,0,0,0.15)" />
                 <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
                 <text x={0} y={-1} textAnchor="middle" dominantBaseline="central"
@@ -1068,7 +1100,7 @@ function PositionChart({ poolLB, uid, claims }) {
                 </text>
                 <text x={0} y={r + 9} textAnchor="middle"
                   fontSize={8} fontWeight={600} fill={color} fontFamily="Arial,sans-serif">
-                  {fmtPar(finalScore)}
+                  {fmtPar(displayScore)}
                 </text>
               </g>
             );
