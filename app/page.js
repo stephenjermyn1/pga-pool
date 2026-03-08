@@ -65,6 +65,7 @@ export default function App() {
   const [showRules, setShowRules] = useState(false);
   const [athleteProfile, setAthleteProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [showChart, setShowChart] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [fetchErr, setFetchErr] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -726,6 +727,7 @@ export default function App() {
         <button style={{ ...S.ctrl, background: showFullLB ? G : "white", color: showFullLB ? "white" : GD }} onClick={() => setShowFullLB(!showFullLB)}>
           {showFullLB ? "Pool View" : "Tournament"}
         </button>
+        <button style={{ ...S.ctrl, background: showChart ? G : "white", color: showChart ? "white" : GD }} onClick={() => setShowChart(!showChart)}>Chart</button>
         <button style={S.ctrl} onClick={() => setShowRules(!showRules)}>Rules</button>
         <button style={S.ctrl} onClick={() => setScreen("draft")}>Draft</button>
         <button style={S.ctrl} onClick={copyInviteLink}>Share</button>
@@ -756,6 +758,8 @@ export default function App() {
         </Card>
       )}
       {tournamentWinner && <div style={S.winnerBanner}>Champion: {tournamentWinner}</div>}
+
+      {showChart && poolLB.length > 0 && <PositionChart poolLB={poolLB} uid={uid} claims={claims} />}
 
       {showFullLB ? (
         <Card>
@@ -866,6 +870,153 @@ export default function App() {
 }
 
 // ============================================================
+const CHART_COLORS = ["#006747", "#d4af37", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"];
+
+function PositionChart({ poolLB, uid, claims }) {
+  const numPlayers = poolLB.length;
+  if (numPlayers === 0) return null;
+
+  // Compute cumulative scores and positions after each round
+  const roundLabels = [];
+  const positionData = {}; // { playerName: [pos after R1, pos after R2, ...] }
+  const scoreData = {};    // { playerName: [cum score after R1, ...] }
+
+  poolLB.forEach(p => { positionData[p.name] = []; scoreData[p.name] = []; });
+
+  for (let ri = 0; ri < 4; ri++) {
+    // Check if any player has data for this round
+    const hasData = poolLB.some(p => p.roundScores[ri] != null);
+    if (!hasData) break;
+    roundLabels.push("R" + (ri + 1));
+
+    // Compute cumulative score for each player up to this round
+    const cumScores = poolLB.map(p => {
+      let cum = 0;
+      let hasAny = false;
+      for (let r = 0; r <= ri; r++) {
+        if (p.roundScores[r] != null) { cum += p.roundScores[r]; hasAny = true; }
+      }
+      return { name: p.name, score: hasAny ? cum : null };
+    });
+
+    // Sort by cumulative score to determine position
+    const ranked = cumScores
+      .filter(c => c.score != null)
+      .sort((a, b) => a.score - b.score);
+
+    // Assign positions (handle ties)
+    const posMap = {};
+    let pos = 1;
+    for (let i = 0; i < ranked.length; i++) {
+      if (i > 0 && ranked[i].score !== ranked[i - 1].score) pos = i + 1;
+      posMap[ranked[i].name] = pos;
+    }
+
+    poolLB.forEach(p => {
+      positionData[p.name].push(posMap[p.name] ?? null);
+      const cum = cumScores.find(c => c.name === p.name);
+      scoreData[p.name].push(cum?.score ?? null);
+    });
+  }
+
+  const numRounds = roundLabels.length;
+  if (numRounds === 0) return null;
+
+  // SVG dimensions
+  const W = 340, H = 220;
+  const padL = 30, padR = 20, padT = 20, padB = 40;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const xStep = numRounds > 1 ? chartW / (numRounds - 1) : chartW / 2;
+  const yStep = numPlayers > 1 ? chartH / (numPlayers - 1) : chartH / 2;
+
+  const getX = (ri) => padL + (numRounds > 1 ? ri * xStep : chartW / 2);
+  const getY = (pos) => padT + (numPlayers > 1 ? (pos - 1) * yStep : chartH / 2);
+
+  return (
+    <Card>
+      <h3 style={{ margin: "0 0 4px", fontSize: 15, color: GD }}>Position Tracker</h3>
+      <p style={{ margin: "0 0 10px", fontSize: 11, color: "#888" }}>Pool standings after each round</p>
+      <div style={{ overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, display: "block", margin: "0 auto" }}>
+          {/* Grid lines */}
+          {Array.from({ length: numPlayers }).map((_, i) => (
+            <line key={"g" + i} x1={padL} x2={W - padR} y1={getY(i + 1)} y2={getY(i + 1)}
+              stroke="#e8e8e8" strokeWidth={1} />
+          ))}
+
+          {/* Y-axis labels (positions) */}
+          {Array.from({ length: numPlayers }).map((_, i) => (
+            <text key={"y" + i} x={padL - 8} y={getY(i + 1) + 4} textAnchor="end"
+              fontSize={11} fill="#888" fontFamily="Georgia,serif">{i + 1}{i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"}</text>
+          ))}
+
+          {/* X-axis labels (rounds) */}
+          {roundLabels.map((label, ri) => (
+            <text key={"x" + ri} x={getX(ri)} y={H - padB + 20} textAnchor="middle"
+              fontSize={12} fontWeight={700} fill={GD} fontFamily="Georgia,serif">{label}</text>
+          ))}
+
+          {/* Player lines + dots */}
+          {poolLB.map((p, pi) => {
+            const color = CHART_COLORS[pi % CHART_COLORS.length];
+            const positions = positionData[p.name];
+            const scores = scoreData[p.name];
+            const isMe = claims[p.name] === uid;
+
+            // Build path segments (skip nulls)
+            const points = positions
+              .map((pos, ri) => pos != null ? { x: getX(ri), y: getY(pos), ri, pos, score: scores[ri] } : null)
+              .filter(Boolean);
+
+            if (points.length === 0) return null;
+
+            const pathD = points.map((pt, i) => (i === 0 ? "M" : "L") + pt.x + "," + pt.y).join(" ");
+
+            return (
+              <g key={p.name}>
+                {/* Line */}
+                <path d={pathD} fill="none" stroke={color} strokeWidth={isMe ? 3 : 2}
+                  strokeLinecap="round" strokeLinejoin="round" opacity={isMe ? 1 : 0.7} />
+                {/* Dots */}
+                {points.map(pt => (
+                  <g key={pt.ri}>
+                    <circle cx={pt.x} cy={pt.y} r={isMe ? 6 : 5} fill={color} stroke="white" strokeWidth={2} />
+                    <text x={pt.x} y={pt.y + 0.5} textAnchor="middle" dominantBaseline="central"
+                      fontSize={7} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
+                      {p.name.charAt(0)}
+                    </text>
+                  </g>
+                ))}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, justifyContent: "center" }}>
+        {poolLB.map((p, pi) => {
+          const color = CHART_COLORS[pi % CHART_COLORS.length];
+          const isMe = claims[p.name] === uid;
+          const positions = positionData[p.name];
+          const lastPos = [...positions].reverse().find(v => v != null);
+          const scores = scoreData[p.name];
+          const lastScore = [...scores].reverse().find(v => v != null);
+          return (
+            <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: isMe ? 700 : 400 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
+              <span style={{ color: GD }}>{p.name}</span>
+              {lastPos != null && <span style={{ color: "#888" }}>({lastScore != null ? fmtPar(lastScore) : ""})</span>}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function Shell({ children, joinCode }) {
   return (
     <div style={{ fontFamily: "'Georgia','Palatino',serif", maxWidth: 680, margin: "0 auto", padding: "0 10px 50px", background: CREAM, minHeight: "100vh" }}>
