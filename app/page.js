@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer } from "../lib/firebase";
 
 const G = "#006747", GD = "#004d35", GOLD = "#d4af37", CREAM = "#fdf8e8";
@@ -874,53 +874,69 @@ const CHART_COLORS = ["#006747", "#d4af37", "#dc3545", "#2196F3", "#FF9800", "#9
 
 function PositionChart({ poolLB, uid, claims }) {
   const numPlayers = poolLB.length;
-  if (numPlayers === 0) return null;
+  const [animRound, setAnimRound] = useState(-1); // -1 = show all, 0+ = animating to that round
+  const [playing, setPlaying] = useState(false);
+  const timerRef = useRef(null);
 
   // Compute cumulative scores and positions after each round
-  const roundLabels = [];
-  const positionData = {}; // { playerName: [pos after R1, pos after R2, ...] }
-  const scoreData = {};    // { playerName: [cum score after R1, ...] }
-
-  poolLB.forEach(p => { positionData[p.name] = []; scoreData[p.name] = []; });
-
-  for (let ri = 0; ri < 4; ri++) {
-    // Check if any player has data for this round
-    const hasData = poolLB.some(p => p.roundScores[ri] != null);
-    if (!hasData) break;
-    roundLabels.push("R" + (ri + 1));
-
-    // Compute cumulative score for each player up to this round
-    const cumScores = poolLB.map(p => {
-      let cum = 0;
-      let hasAny = false;
-      for (let r = 0; r <= ri; r++) {
-        if (p.roundScores[r] != null) { cum += p.roundScores[r]; hasAny = true; }
+  const { roundLabels, positionData, scoreData } = useMemo(() => {
+    const rl = [], pd = {}, sd = {};
+    poolLB.forEach(p => { pd[p.name] = []; sd[p.name] = []; });
+    for (let ri = 0; ri < 4; ri++) {
+      const hasData = poolLB.some(p => p.roundScores[ri] != null);
+      if (!hasData) break;
+      rl.push("R" + (ri + 1));
+      const cumScores = poolLB.map(p => {
+        let cum = 0, hasAny = false;
+        for (let r = 0; r <= ri; r++) {
+          if (p.roundScores[r] != null) { cum += p.roundScores[r]; hasAny = true; }
+        }
+        return { name: p.name, score: hasAny ? cum : null };
+      });
+      const ranked = cumScores.filter(c => c.score != null).sort((a, b) => a.score - b.score);
+      const posMap = {};
+      let pos = 1;
+      for (let i = 0; i < ranked.length; i++) {
+        if (i > 0 && ranked[i].score !== ranked[i - 1].score) pos = i + 1;
+        posMap[ranked[i].name] = pos;
       }
-      return { name: p.name, score: hasAny ? cum : null };
-    });
-
-    // Sort by cumulative score to determine position
-    const ranked = cumScores
-      .filter(c => c.score != null)
-      .sort((a, b) => a.score - b.score);
-
-    // Assign positions (handle ties)
-    const posMap = {};
-    let pos = 1;
-    for (let i = 0; i < ranked.length; i++) {
-      if (i > 0 && ranked[i].score !== ranked[i - 1].score) pos = i + 1;
-      posMap[ranked[i].name] = pos;
+      poolLB.forEach(p => {
+        pd[p.name].push(posMap[p.name] ?? null);
+        const cum = cumScores.find(c => c.name === p.name);
+        sd[p.name].push(cum?.score ?? null);
+      });
     }
-
-    poolLB.forEach(p => {
-      positionData[p.name].push(posMap[p.name] ?? null);
-      const cum = cumScores.find(c => c.name === p.name);
-      scoreData[p.name].push(cum?.score ?? null);
-    });
-  }
+    return { roundLabels: rl, positionData: pd, scoreData: sd };
+  }, [poolLB]);
 
   const numRounds = roundLabels.length;
-  if (numRounds === 0) return null;
+
+  // Clean up timer on unmount
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  // Animation playback
+  const play = useCallback(() => {
+    if (numRounds <= 1) return;
+    setPlaying(true);
+    setAnimRound(0);
+    let step = 0;
+    const advance = () => {
+      step++;
+      if (step >= numRounds) {
+        // Hold on final round briefly, then show all trails
+        timerRef.current = setTimeout(() => {
+          setAnimRound(-1);
+          setPlaying(false);
+        }, 1200);
+        return;
+      }
+      setAnimRound(step);
+      timerRef.current = setTimeout(advance, 1400);
+    };
+    timerRef.current = setTimeout(advance, 1400);
+  }, [numRounds]);
+
+  if (numPlayers === 0 || numRounds === 0) return null;
 
   // SVG dimensions
   const W = 340, H = 220;
@@ -928,16 +944,39 @@ function PositionChart({ poolLB, uid, claims }) {
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
 
-  const xStep = numRounds > 1 ? chartW / (numRounds - 1) : chartW / 2;
-  const yStep = numPlayers > 1 ? chartH / (numPlayers - 1) : chartH / 2;
+  const getX = (ri) => padL + (numRounds > 1 ? ri * (chartW / (numRounds - 1)) : chartW / 2);
+  const getY = (pos) => padT + (numPlayers > 1 ? (pos - 1) * (chartH / (numPlayers - 1)) : chartH / 2);
 
-  const getX = (ri) => padL + (numRounds > 1 ? ri * xStep : chartW / 2);
-  const getY = (pos) => padT + (numPlayers > 1 ? (pos - 1) * yStep : chartH / 2);
+  // Determine visible round range
+  const showUpTo = animRound >= 0 ? animRound : numRounds - 1;
+  const isAnimating = animRound >= 0;
 
   return (
     <Card>
-      <h3 style={{ margin: "0 0 4px", fontSize: 15, color: GD }}>Position Tracker</h3>
-      <p style={{ margin: "0 0 10px", fontSize: 11, color: "#888" }}>Pool standings after each round</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15, color: GD }}>Position Tracker</h3>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#888" }}>
+            {isAnimating ? `After ${roundLabels[showUpTo]}` : "Pool standings after each round"}
+          </p>
+        </div>
+        {numRounds > 1 && (
+          <button
+            disabled={playing}
+            onClick={play}
+            style={{
+              background: playing ? "#e0e0e0" : "linear-gradient(135deg," + G + "," + GD + ")",
+              color: playing ? "#888" : "white",
+              border: "none", borderRadius: 8, padding: "7px 14px",
+              fontSize: 12, fontWeight: 600, cursor: playing ? "default" : "pointer",
+              fontFamily: "'Georgia',serif",
+              boxShadow: playing ? "none" : "0 2px 8px rgba(0,103,71,0.25)",
+            }}
+          >
+            {playing ? "Playing..." : "▶ Replay"}
+          </button>
+        )}
+      </div>
       <div style={{ overflowX: "auto" }}>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, display: "block", margin: "0 auto" }}>
           {/* Grid lines */}
@@ -949,46 +988,89 @@ function PositionChart({ poolLB, uid, claims }) {
           {/* Y-axis labels (positions) */}
           {Array.from({ length: numPlayers }).map((_, i) => (
             <text key={"y" + i} x={padL - 8} y={getY(i + 1) + 4} textAnchor="end"
-              fontSize={11} fill="#888" fontFamily="Georgia,serif">{i + 1}{i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"}</text>
+              fontSize={11} fill="#888" fontFamily="Georgia,serif">
+              {i + 1}{i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"}
+            </text>
           ))}
 
           {/* X-axis labels (rounds) */}
           {roundLabels.map((label, ri) => (
             <text key={"x" + ri} x={getX(ri)} y={H - padB + 20} textAnchor="middle"
-              fontSize={12} fontWeight={700} fill={GD} fontFamily="Georgia,serif">{label}</text>
+              fontSize={12} fontWeight={ri <= showUpTo ? 700 : 400}
+              fill={ri <= showUpTo ? GD : "#ccc"} fontFamily="Georgia,serif">
+              {label}
+            </text>
           ))}
 
-          {/* Player lines + dots */}
+          {/* Vertical marker for current animated round */}
+          {isAnimating && (
+            <line x1={getX(showUpTo)} x2={getX(showUpTo)}
+              y1={padT - 5} y2={padT + chartH + 5}
+              stroke={GOLD} strokeWidth={2} opacity={0.4} strokeDasharray="4,3" />
+          )}
+
+          {/* Player trail lines (shown rounds only) */}
+          {poolLB.map((p, pi) => {
+            const color = CHART_COLORS[pi % CHART_COLORS.length];
+            const positions = positionData[p.name];
+            const isMe = claims[p.name] === uid;
+
+            const points = positions
+              .map((pos, ri) => (pos != null && ri <= showUpTo) ? { x: getX(ri), y: getY(pos) } : null)
+              .filter(Boolean);
+
+            if (points.length < 2) return null;
+
+            const pathD = points.map((pt, i) => (i === 0 ? "M" : "L") + pt.x + "," + pt.y).join(" ");
+            return (
+              <path key={"trail-" + p.name} d={pathD} fill="none" stroke={color}
+                strokeWidth={isMe ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"
+                opacity={isAnimating ? (isMe ? 0.5 : 0.2) : (isMe ? 0.8 : 0.4)} />
+            );
+          })}
+
+          {/* Player dots — animate position with CSS transition */}
           {poolLB.map((p, pi) => {
             const color = CHART_COLORS[pi % CHART_COLORS.length];
             const positions = positionData[p.name];
             const scores = scoreData[p.name];
             const isMe = claims[p.name] === uid;
 
-            // Build path segments (skip nulls)
-            const points = positions
-              .map((pos, ri) => pos != null ? { x: getX(ri), y: getY(pos), ri, pos, score: scores[ri] } : null)
-              .filter(Boolean);
+            // Current position = position at showUpTo round
+            const curPos = positions[showUpTo];
+            const curScore = scores[showUpTo];
+            if (curPos == null) return null;
 
-            if (points.length === 0) return null;
+            const cx = getX(showUpTo);
+            const cy = getY(curPos);
+            const r = isMe ? 14 : 12;
 
-            const pathD = points.map((pt, i) => (i === 0 ? "M" : "L") + pt.x + "," + pt.y).join(" ");
+            // In "show all" mode, place dot at last valid round
+            const finalRi = isAnimating ? showUpTo : positions.reduce((last, pos, ri) => pos != null ? ri : last, 0);
+            const finalPos = positions[finalRi];
+            const finalScore = scores[finalRi];
+            if (finalPos == null) return null;
+
+            const fx = getX(finalRi);
+            const fy = getY(finalPos);
 
             return (
-              <g key={p.name}>
-                {/* Line */}
-                <path d={pathD} fill="none" stroke={color} strokeWidth={isMe ? 3 : 2}
-                  strokeLinecap="round" strokeLinejoin="round" opacity={isMe ? 1 : 0.7} />
-                {/* Dots */}
-                {points.map(pt => (
-                  <g key={pt.ri}>
-                    <circle cx={pt.x} cy={pt.y} r={isMe ? 6 : 5} fill={color} stroke="white" strokeWidth={2} />
-                    <text x={pt.x} y={pt.y + 0.5} textAnchor="middle" dominantBaseline="central"
-                      fontSize={7} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
-                      {p.name.charAt(0)}
-                    </text>
-                  </g>
-                ))}
+              <g key={p.name}
+                style={{ transition: "transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)", transform: `translate(${fx}px, ${fy}px)` }}>
+                {/* Shadow */}
+                <circle cx={0} cy={2} r={r} fill="rgba(0,0,0,0.15)" />
+                {/* Circle */}
+                <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
+                {/* Initial */}
+                <text x={0} y={-1} textAnchor="middle" dominantBaseline="central"
+                  fontSize={r > 12 ? 10 : 9} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
+                  {p.name.substring(0, 2).toUpperCase()}
+                </text>
+                {/* Score below */}
+                <text x={0} y={r + 9} textAnchor="middle"
+                  fontSize={8} fontWeight={600} fill={color} fontFamily="Arial,sans-serif">
+                  {finalScore != null ? fmtPar(finalScore) : ""}
+                </text>
               </g>
             );
           })}
@@ -1000,15 +1082,13 @@ function PositionChart({ poolLB, uid, claims }) {
         {poolLB.map((p, pi) => {
           const color = CHART_COLORS[pi % CHART_COLORS.length];
           const isMe = claims[p.name] === uid;
-          const positions = positionData[p.name];
-          const lastPos = [...positions].reverse().find(v => v != null);
           const scores = scoreData[p.name];
           const lastScore = [...scores].reverse().find(v => v != null);
           return (
             <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: isMe ? 700 : 400 }}>
               <div style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
               <span style={{ color: GD }}>{p.name}</span>
-              {lastPos != null && <span style={{ color: "#888" }}>({lastScore != null ? fmtPar(lastScore) : ""})</span>}
+              {lastScore != null && <span style={{ color: "#888" }}>({fmtPar(lastScore)})</span>}
             </div>
           );
         })}
