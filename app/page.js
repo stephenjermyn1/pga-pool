@@ -2,8 +2,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer } from "../lib/firebase";
 
-const G = "#006747", GD = "#004d35", GOLD = "#d4af37", CREAM = "#fdf8e8";
-const BOARD_GREEN = "#1a472a", BOARD_DARK = "#0f2d1a", BOARD_YELLOW = "#f4d03f", BOARD_RED = "#e74c3c";
+const G = "#002D72", GD = "#001A4B", GOLD = "#C8102E", CREAM = "#f0f4fa";
+const BOARD_GREEN = "#0a1e3d", BOARD_DARK = "#061429", BOARD_YELLOW = "#f4d03f", BOARD_RED = "#e74c3c";
 const PICKS = 5, BEST_OF = 3, WINNER_BONUS = -10, MC_SCORE = 80, PAR = 72;
 
 function fmtPar(val) {
@@ -397,7 +397,7 @@ export default function App() {
             <h3 style={S.sec}>Rounds</h3>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
               {g.rounds.map((r, i) => (
-                <div key={i} style={{ background: r.isComplete ? "#f0f7f0" : r.holesPlayed > 0 ? "#fff8e1" : "#f5f5f5", borderRadius: 8, padding: "8px 14px", textAlign: "center", flex: 1, minWidth: 60 }}>
+                <div key={i} style={{ background: r.isComplete ? "#f0f4fa" : r.holesPlayed > 0 ? "#fff8e1" : "#f5f5f5", borderRadius: 8, padding: "8px 14px", textAlign: "center", flex: 1, minWidth: 60 }}>
                   <div style={{ fontSize: 11, color: "#888" }}>R{i + 1}</div>
                   {r.isComplete ? <div style={{ fontSize: 18, fontWeight: 700, color: G }}>{r.strokes}</div>
                     : r.holesPlayed > 0 ? <div style={{ fontSize: 18, fontWeight: 700, color: parClr(r.displayValue) }}>{r.displayValue || "—"}</div>
@@ -554,7 +554,7 @@ export default function App() {
                 width: "100%", padding: "14px 16px", marginBottom: 8,
                 borderRadius: 10, cursor: "pointer",
                 border: claimedByMe ? "2px solid " + G : "2px solid #e0e0e0",
-                background: claimedByMe ? "#f0f7f0" : "white",
+                background: claimedByMe ? "#f0f4fa" : "white",
                 fontFamily: "'Georgia',serif", fontSize: 15,
               }}
               onClick={async () => {
@@ -659,7 +659,7 @@ export default function App() {
             </div>
           )}
           {canPick && isAdmin && claims[drafter] !== uid && (
-            <div style={{ marginTop: 8, padding: "6px 12px", background: "rgba(212,175,55,0.25)", borderRadius: 8, fontSize: 12, color: GOLD }}>
+            <div style={{ marginTop: 8, padding: "6px 12px", background: "rgba(200,16,46,0.15)", borderRadius: 8, fontSize: 12, color: GOLD }}>
               Admin: picking on behalf of {drafter}
             </div>
           )}
@@ -768,7 +768,7 @@ export default function App() {
             {espnField.map((g, i) => {
               const isPicked = Object.values(picks).flat().includes(g.name);
               return (
-                <div key={g.name} style={{ display: "flex", alignItems: "center", padding: "6px 4px", borderBottom: "1px solid #f0f0f0", background: isPicked ? "rgba(0,103,71,0.06)" : "transparent", cursor: "pointer" }} onClick={() => setGolferDetail(g.name)}>
+                <div key={g.name} style={{ display: "flex", alignItems: "center", padding: "6px 4px", borderBottom: "1px solid #f0f0f0", background: isPicked ? "rgba(0,45,114,0.06)" : "transparent", cursor: "pointer" }} onClick={() => setGolferDetail(g.name)}>
                   <div style={{ width: 30, fontSize: 13, fontWeight: 600, color: "#888" }}>{i + 1}</div>
                   <div style={{ flex: 1, fontSize: 13, fontWeight: isPicked ? 700 : 400, color: isPicked ? GD : "#333" }}>{g.name} {isPicked && "⛳"}</div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -783,8 +783,8 @@ export default function App() {
         </Card>
       ) : (<>
         {/* Masters-style scoreboard */}
-        <div style={{ background: BOARD_GREEN, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.4)", border: "3px solid #2d5a3d", marginBottom: 12 }}>
-          <div style={{ background: BOARD_DARK, padding: "10px 16px", textAlign: "center", borderBottom: "2px solid #2d5a3d" }}>
+        <div style={{ background: BOARD_GREEN, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.4)", border: "3px solid #1a3a5c", marginBottom: 12 }}>
+          <div style={{ background: BOARD_DARK, padding: "10px 16px", textAlign: "center", borderBottom: "2px solid #1a3a5c" }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: BOARD_YELLOW, letterSpacing: 6, fontFamily: "'Georgia',serif", textTransform: "uppercase" }}>LEADERS</div>
           </div>
           <div style={{ display: "flex", padding: "8px 12px 4px", borderBottom: "1px solid rgba(255,255,255,0.15)", alignItems: "center" }}>
@@ -814,7 +814,7 @@ export default function App() {
                   {[0, 1, 2, 3].map(ri => {
                     const rs = e.roundScores[ri];
                     const inProg = e.roundInProgress[ri];
-                    const clr = rs == null ? "rgba(255,255,255,0.15)" : inProg ? (rs < 0 ? BOARD_RED : rs > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "#8fbc8f";
+                    const clr = rs == null ? "rgba(255,255,255,0.15)" : inProg ? (rs < 0 ? BOARD_RED : rs > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "#8fabc8";
                     return <div key={ri} style={{ flex: 0.45, textAlign: "center", fontSize: 12, fontWeight: 600, color: clr }}>{rs != null ? fmtPar(rs) : "—"}</div>;
                   })}
                   <div style={{ flex: 0.6, textAlign: "right" }}>
@@ -841,7 +841,7 @@ export default function App() {
                           {[0, 1, 2, 3].map(r => {
                             const rd = g.rounds?.[r];
                             if (!rd) return <div key={r} style={{ flex: 0.45, textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.15)" }}>—</div>;
-                            const rdColor = rd.isComplete ? "#8fbc8f" : rd.holesPlayed > 0 ? (parseInt(rd.displayValue) < 0 ? BOARD_RED : parseInt(rd.displayValue) > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "rgba(255,255,255,0.15)";
+                            const rdColor = rd.isComplete ? "#8fabc8" : rd.holesPlayed > 0 ? (parseInt(rd.displayValue) < 0 ? BOARD_RED : parseInt(rd.displayValue) > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "rgba(255,255,255,0.15)";
                             return <div key={r} style={{ flex: 0.45, textAlign: "center", fontSize: 12, fontWeight: 600, color: rdColor }}>
                               {rd.isComplete ? rd.strokes : rd.holesPlayed > 0 ? (rd.displayValue || "—") : "—"}
                             </div>;
@@ -870,7 +870,7 @@ export default function App() {
 }
 
 // ============================================================
-const CHART_COLORS = ["#006747", "#d4af37", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"];
+const CHART_COLORS = ["#002D72", "#C8102E", "#d4af37", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"];
 
 function PositionChart({ poolLB, uid, claims }) {
   const numPlayers = poolLB.length;
@@ -986,7 +986,7 @@ function PositionChart({ poolLB, uid, claims }) {
               border: "none", borderRadius: 8, padding: "7px 14px",
               fontSize: 12, fontWeight: 600, cursor: playing ? "default" : "pointer",
               fontFamily: "'Georgia',serif",
-              boxShadow: playing ? "none" : "0 2px 8px rgba(0,103,71,0.25)",
+              boxShadow: playing ? "none" : "0 2px 8px rgba(0,45,114,0.25)",
             }}
           >
             {playing ? "Playing..." : "▶ Replay"}
@@ -1002,7 +1002,7 @@ function PositionChart({ poolLB, uid, claims }) {
             return (
               <g key={"tick-" + v}>
                 <line x1={padL} x2={W - padR} y1={y} y2={y}
-                  stroke={isEven ? "rgba(0,103,71,0.25)" : "#e8e8e8"}
+                  stroke={isEven ? "rgba(0,45,114,0.25)" : "#e8e8e8"}
                   strokeWidth={isEven ? 1.5 : 0.75}
                   strokeDasharray={isEven ? "none" : "2,3"} />
                 <text x={padL - 6} y={y + 4} textAnchor="end"
@@ -1179,19 +1179,19 @@ const S = {
   searchInput: { width: "100%", padding: "9px 11px", borderRadius: 7, border: "1px solid #ddd", fontSize: 13, marginBottom: 8, outline: "none", boxSizing: "border-box", fontFamily: "'Georgia',serif" },
   xBtn: { background: "none", border: "none", fontSize: 16, color: "#999", cursor: "pointer", padding: "4px 8px" },
   dashed: { background: "none", border: "2px dashed " + G, borderRadius: 7, padding: "9px", color: G, fontSize: 13, cursor: "pointer", width: "100%", marginBottom: 4, fontFamily: "'Georgia',serif" },
-  primary: { background: "linear-gradient(135deg," + G + "," + GD + ")", color: "white", border: "none", borderRadius: 9, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%", fontFamily: "'Georgia',serif", boxShadow: "0 4px 12px rgba(0,103,71,0.25)" },
+  primary: { background: "linear-gradient(135deg," + G + "," + GD + ")", color: "white", border: "none", borderRadius: 9, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%", fontFamily: "'Georgia',serif", boxShadow: "0 4px 12px rgba(0,45,114,0.25)" },
   smallBtn: { background: G, color: "white", border: "none", borderRadius: 7, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontFamily: "'Georgia',serif", whiteSpace: "nowrap" },
   badge: { background: G, color: "white", padding: "3px 10px", borderRadius: 16, fontSize: 12, fontWeight: 600 },
   bar: { background: "#e0e0e0", borderRadius: 8, height: 7, overflow: "hidden" },
   barFill: { background: "linear-gradient(90deg," + G + "," + GOLD + ")", height: "100%", borderRadius: 8, transition: "width 0.3s" },
-  pickerCard: { background: "linear-gradient(135deg," + G + "," + GD + ")", borderRadius: 12, padding: 22, textAlign: "center", marginBottom: 12, boxShadow: "0 4px 16px rgba(0,103,71,0.3)" },
+  pickerCard: { background: "linear-gradient(135deg," + G + "," + GD + ")", borderRadius: 12, padding: 22, textAlign: "center", marginBottom: 12, boxShadow: "0 4px 16px rgba(0,45,114,0.3)" },
   golferBtn: { background: "white", border: "1px solid " + G, borderRadius: 7, padding: "9px 8px", fontSize: 12, cursor: "pointer", textAlign: "left", fontFamily: "'Georgia',serif", color: GD },
   undo: { background: "white", border: "2px solid #ff9800", color: "#ff9800", borderRadius: 9, padding: "11px 16px", fontSize: 13, cursor: "pointer", width: "100%", fontFamily: "'Georgia',serif", fontWeight: 600, marginTop: 2 },
-  teamCard: { background: "#f0f7f0", borderRadius: 9, padding: 12, marginBottom: 10 },
+  teamCard: { background: "#f0f4fa", borderRadius: 9, padding: 12, marginBottom: 10 },
   teamName: { fontSize: 15, fontWeight: 700, color: GD, marginBottom: 6 },
   ctrl: { background: "white", border: "1px solid #ddd", borderRadius: 7, padding: "7px 12px", fontSize: 12, cursor: "pointer", fontFamily: "'Georgia',serif" },
   eventBanner: { background: "linear-gradient(135deg," + G + "," + GD + ")", borderRadius: 10, padding: "12px 16px", marginBottom: 12, textAlign: "center" },
-  winnerBanner: { background: "linear-gradient(135deg," + GOLD + ",#f5d478)", borderRadius: 10, padding: "12px 16px", textAlign: "center", fontSize: 17, fontWeight: 700, color: GD, marginBottom: 12, boxShadow: "0 3px 10px rgba(212,175,55,0.3)" },
+  winnerBanner: { background: "linear-gradient(135deg, #d4af37, #f5d478)", borderRadius: 10, padding: "12px 16px", textAlign: "center", fontSize: 17, fontWeight: 700, color: GD, marginBottom: 12, boxShadow: "0 3px 10px rgba(200,16,46,0.3)" },
   mc: { marginLeft: 5, fontSize: 10, background: "#dc3545", color: "white", padding: "1px 5px", borderRadius: 3, fontWeight: 700 },
   rule: { margin: "4px 0", fontSize: 13, color: "#555" },
   overlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: 20 },
