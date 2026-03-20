@@ -40,7 +40,7 @@ const THEMES = {
     chartColors: ["#1C2841", "#B8860B", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
   },
   default: {
-    G: "#C41E3A", GD: "#9B1530", GOLD: "#ffffff", CREAM: "#faf5f5",
+    G: "#C41E3A", GD: "#9B1530", GOLD: "#d4af37", CREAM: "#faf5f5",
     BOARD_GREEN: "#3d0c14", BOARD_DARK: "#2a0810",
     chartColors: ["#C41E3A", "#d4af37", "#003366", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
   },
@@ -1123,7 +1123,7 @@ function PositionChart({ poolLB, uid, claims }) {
 
           {/* Player trail lines — draw up to current progress */}
           {poolLB.map((p, pi) => {
-            const color = CHART_COLORS_DYN[pi % CHART_COLORS.length];
+            const color = CHART_COLORS_DYN[pi % CHART_COLORS_DYN.length];
             const scores = scoreData[p.name];
             const isMe = claims[p.name] === uid;
 
@@ -1159,7 +1159,7 @@ function PositionChart({ poolLB, uid, claims }) {
 
           {/* Player dots — smoothly interpolated position */}
           {poolLB.map((p, pi) => {
-            const color = CHART_COLORS_DYN[pi % CHART_COLORS.length];
+            const color = CHART_COLORS_DYN[pi % CHART_COLORS_DYN.length];
             const scores = scoreData[p.name];
             const isMe = claims[p.name] === uid;
             const r = isMe ? 14 : 12;
@@ -1201,7 +1201,7 @@ function PositionChart({ poolLB, uid, claims }) {
       {/* Legend */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, justifyContent: "center" }}>
         {poolLB.map((p, pi) => {
-          const color = CHART_COLORS_DYN[pi % CHART_COLORS.length];
+          const color = CHART_COLORS_DYN[pi % CHART_COLORS_DYN.length];
           const isMe = claims[p.name] === uid;
           const scores = scoreData[p.name];
           const lastScore = [...scores].reverse().find(v => v != null);
