@@ -40,9 +40,9 @@ const THEMES = {
     chartColors: ["#1C2841", "#B8860B", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
   },
   default: {
-    G: "#003366", GD: "#00264d", GOLD: "#C41E3A", CREAM: "#f5f5f5",
-    BOARD_GREEN: "#0c1f33", BOARD_DARK: "#081422",
-    chartColors: ["#003366", "#C41E3A", "#d4af37", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    G: "#C41E3A", GD: "#9B1530", GOLD: "#ffffff", CREAM: "#faf5f5",
+    BOARD_GREEN: "#3d0c14", BOARD_DARK: "#2a0810",
+    chartColors: ["#C41E3A", "#d4af37", "#003366", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
   },
 };
 
