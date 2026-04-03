@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer } from "../lib/firebase";
+import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer, savePhoto } from "../lib/firebase";
 
 // --- Dynamic Tournament Theming ---
 let G, GD, GOLD, CREAM, BOARD_GREEN, BOARD_DARK;
@@ -114,6 +114,7 @@ export default function App() {
   const [tournamentDone, setTournamentDone] = useState(false);
   const [tournamentWinner, setTournamentWinner] = useState(null);
   const [claims, setClaims] = useState({});
+  const [photos, setPhotos] = useState({});
   const [adminUid, setAdminUid] = useState(null);
 
   // --- UI state ---
@@ -136,6 +137,20 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(false);
 
   const unsubRef = useRef(null);
+  const prevPickIdxRef = useRef(null);
+  const [notifEnabled, setNotifEnabled] = useState(false);
+
+  // --- Check notification permission ---
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") setNotifEnabled(true);
+  }, []);
+
+  const requestNotifications = useCallback(async () => {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "granted") { setNotifEnabled(true); return; }
+    const perm = await Notification.requestPermission();
+    setNotifEnabled(perm === "granted");
+  }, []);
 
   // --- Splash screen (once per session) ---
   useEffect(() => {
@@ -236,6 +251,7 @@ export default function App() {
     setAdminUid(data.adminUid || null);
     setIsAdmin(data.adminUid === userId);
     setClaims(data.claims || {});
+    setPhotos(data.photos || {});
     applyPoolData(data);
 
     // Check if this user has a claim
@@ -258,10 +274,37 @@ export default function App() {
     }
 
     // Subscribe to real-time changes
+    prevPickIdxRef.current = data.pickIdx || 0;
     unsubRef.current = subscribePool(pid, (snap) => {
       if (snap) {
+        // Detect turn change and notify
+        const newPickIdx = snap.pickIdx || 0;
+        const prevIdx = prevPickIdxRef.current;
+        if (newPickIdx !== prevIdx && !snap.draftDone) {
+          const nextDrafter = snap.draftOrder?.[newPickIdx];
+          const claimsMap = snap.claims || {};
+          if (nextDrafter && claimsMap[nextDrafter] === userId) {
+            // It's my turn — fire notification + tab title flash
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("It's your turn!", { body: `${nextDrafter}, you're up to pick!`, icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛳</text></svg>" });
+            }
+            // Flash tab title
+            const orig = document.title;
+            let flash = true;
+            const iv = setInterval(() => {
+              document.title = flash ? "⛳ YOUR TURN!" : orig;
+              flash = !flash;
+            }, 1000);
+            const stopFlash = () => { clearInterval(iv); document.title = orig; document.removeEventListener("visibilitychange", stopFlash); };
+            document.addEventListener("visibilitychange", stopFlash);
+            setTimeout(stopFlash, 15000);
+          }
+        }
+        prevPickIdxRef.current = newPickIdx;
+
         applyPoolData(snap);
         setClaims(snap.claims || {});
+        setPhotos(snap.photos || {});
         setAdminUid(snap.adminUid || null);
         setIsAdmin(snap.adminUid === userId);
       }
@@ -673,7 +716,10 @@ export default function App() {
                 }
               }}
             >
-              <span style={{ fontWeight: 700, color: claimedByMe ? G : claimedByOther ? "#888" : GD }}>{name}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, color: claimedByMe ? G : claimedByOther ? "#888" : GD }}>
+                {photos[name] && <img src={photos[name]} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />}
+                {name}
+              </span>
               <span style={{ fontSize: 12, color: claimedByMe ? G : claimedByOther ? "#888" : "#999" }}>
                 {claimedByMe ? "You" : claimedByOther ? "Claimed — tap to reclaim" : "Tap to claim"}
               </span>
@@ -682,22 +728,60 @@ export default function App() {
         })}
 
         {myName && (
-          <button style={{ ...S.primary, marginTop: 12 }}
-            onClick={async () => {
-              // Fetch field then go to draft
-              const result = await fetchESPN(null);
-              if (result || espnField.length > 0) {
-                if (result?.eventName) {
-                  await updatePool(poolId, { eventName: result.eventName, selectedEvent: selectedEvent });
+          <>
+            {!notifEnabled && typeof Notification !== "undefined" && Notification.permission !== "denied" && (
+              <Card>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontSize: 28 }}>🔔</div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ margin: "0 0 4px", fontSize: 14, color: GD }}>Turn Notifications</h3>
+                    <p style={{ margin: 0, fontSize: 12, color: "#888" }}>Get notified when it's your turn to pick</p>
+                  </div>
+                  <button style={{ background: G, color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer", fontFamily: "'Georgia',serif" }}
+                    onClick={requestNotifications}>Enable</button>
+                </div>
+              </Card>
+            )}
+            {notifEnabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#e8f5e9", borderRadius: 8, marginBottom: 8, fontSize: 12, color: "#2e7d32" }}>
+                <span>🔔</span> Notifications enabled — you'll be alerted when it's your turn
+              </div>
+            )}
+
+            <Card>
+              <h3 style={{ margin: "0 0 8px", fontSize: 14, color: GD }}>Your Profile Photo</h3>
+              <p style={{ margin: "0 0 10px", fontSize: 12, color: "#888" }}>Add a photo for the score chart (optional)</p>
+              <PhotoCapture playerName={myName} currentPhoto={photos[myName]} poolId={poolId} onSaved={() => notify("Photo saved!")} />
+            </Card>
+
+            {isAdmin && (
+              <Card>
+                <h3 style={{ margin: "0 0 8px", fontSize: 14, color: GD }}>Set Player Photos (Admin)</h3>
+                <p style={{ margin: "0 0 10px", fontSize: 12, color: "#888" }}>Add photos for players who skipped it</p>
+                {players.filter(n => n !== myName).map(name => (
+                  <div key={name} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid #f0f0f0" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: GD, marginBottom: 6 }}>{name}</div>
+                    <PhotoCapture playerName={name} currentPhoto={photos[name]} poolId={poolId} onSaved={() => notify(name + "'s photo saved!")} />
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            <button style={{ ...S.primary, marginTop: 12 }}
+              onClick={async () => {
+                const result = await fetchESPN(null);
+                if (result || espnField.length > 0) {
+                  if (result?.eventName) {
+                    await updatePool(poolId, { eventName: result.eventName, selectedEvent: selectedEvent });
+                  }
+                  setScreen(draftDone ? "leaderboard" : "draft");
+                } else if (!showEventPicker) {
+                  setScreen(draftDone ? "leaderboard" : "draft");
                 }
-                setScreen(draftDone ? "leaderboard" : "draft");
-              } else if (!showEventPicker) {
-                // Even without ESPN data, allow continuing
-                setScreen(draftDone ? "leaderboard" : "draft");
-              }
-            }}>
-            {draftDone ? "Go to Leaderboard" : "Continue to Draft"}
-          </button>
+              }}>
+              {draftDone ? "Go to Leaderboard" : "Continue to Draft"}
+            </button>
+          </>
         )}
       </Card>
       {EventPicker}<Toast msg={toast} />
@@ -761,6 +845,11 @@ export default function App() {
           {!canPick && (
             <div style={{ marginTop: 8, padding: "6px 12px", background: "rgba(255,255,255,0.15)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
               Waiting for {drafter} to pick...
+              {!notifEnabled && typeof Notification !== "undefined" && Notification.permission !== "denied" && (
+                <button onClick={requestNotifications} style={{ display: "block", margin: "6px auto 0", background: GOLD, color: GD, border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'Georgia',serif" }}>
+                  🔔 Enable turn notifications
+                </button>
+              )}
             </div>
           )}
           {canPick && isAdmin && claims[drafter] !== uid && (
@@ -864,7 +953,20 @@ export default function App() {
       )}
       {tournamentWinner && <div style={S.winnerBanner}>Champion: {tournamentWinner}</div>}
 
-      {showChart && poolLB.length > 0 && <PositionChart poolLB={poolLB} uid={uid} claims={claims} />}
+      {showChart && poolLB.length > 0 && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 998, background: "white", display: "flex", flexDirection: "column", overflow: "auto" }}>
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 17, color: GD }}>Score Tracker</h3>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "#888" }}>{eventName}</p>
+            </div>
+            <button style={{ ...S.ctrl, fontSize: 14, padding: "8px 16px" }} onClick={() => setShowChart(false)}>✕ Close</button>
+          </div>
+          <div style={{ flex: 1, padding: "8px 4px" }}>
+            <PositionChart poolLB={poolLB} uid={uid} claims={claims} photos={photos} fullScreen />
+          </div>
+        </div>
+      )}
 
       {showFullLB ? (
         <Card>
@@ -977,7 +1079,7 @@ export default function App() {
 // ============================================================
 // CHART_COLORS are now dynamic via CHART_COLORS_DYN (set by applyTheme)
 
-function PositionChart({ poolLB, uid, claims }) {
+function PositionChart({ poolLB, uid, claims, photos = {}, fullScreen }) {
   const numPlayers = poolLB.length;
   const [animT, setAnimT] = useState(-1); // -1 = show all, 0..numRounds-1 = continuous progress
   const [playing, setPlaying] = useState(false);
@@ -1039,8 +1141,8 @@ function PositionChart({ poolLB, uid, claims }) {
   if (numPlayers === 0 || numRounds === 0) return null;
 
   // SVG dimensions
-  const W = 340, H = 240;
-  const padL = 36, padR = 20, padT = 20, padB = 40;
+  const W = fullScreen ? 700 : 340, H = fullScreen ? 500 : 240;
+  const padL = fullScreen ? 48 : 36, padR = fullScreen ? 30 : 20, padT = fullScreen ? 30 : 20, padB = fullScreen ? 50 : 40;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
 
@@ -1072,12 +1174,14 @@ function PositionChart({ poolLB, uid, claims }) {
   if (scoreMin <= 0 && scoreMax >= 0 && !yTicks.includes(0)) yTicks.push(0);
   yTicks.sort((a, b) => a - b);
 
+  const Wrap = fullScreen ? "div" : Card;
+
   return (
-    <Card>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+    <Wrap>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, padding: fullScreen ? "0 12px" : 0 }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 15, color: GD }}>Score Tracker</h3>
-          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#888" }}>
+          {!fullScreen && <h3 style={{ margin: 0, fontSize: 15, color: GD }}>Score Tracker</h3>}
+          <p style={{ margin: "2px 0 0", fontSize: fullScreen ? 13 : 11, color: "#888" }}>
             {isAnimating ? `After ${roundLabels[Math.min(Math.round(showUpTo), numRounds - 1)]}` : "Combined score (best 3) after each round"}
           </p>
         </div>
@@ -1088,8 +1192,8 @@ function PositionChart({ poolLB, uid, claims }) {
             style={{
               background: playing ? "#e0e0e0" : "linear-gradient(135deg," + G + "," + GD + ")",
               color: playing ? "#888" : "white",
-              border: "none", borderRadius: 8, padding: "7px 14px",
-              fontSize: 12, fontWeight: 600, cursor: playing ? "default" : "pointer",
+              border: "none", borderRadius: 8, padding: fullScreen ? "9px 18px" : "7px 14px",
+              fontSize: fullScreen ? 14 : 12, fontWeight: 600, cursor: playing ? "default" : "pointer",
               fontFamily: "'Georgia',serif",
               boxShadow: playing ? "none" : "0 2px 8px " + hexToRgba(G, 0.25),
             }}
@@ -1098,8 +1202,8 @@ function PositionChart({ poolLB, uid, claims }) {
           </button>
         )}
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, display: "block", margin: "0 auto" }}>
+      <div style={{ overflowX: "auto", padding: fullScreen ? "0 4px" : 0 }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: fullScreen ? "100%" : W, display: "block", margin: "0 auto" }}>
           {/* Grid lines + Y-axis labels */}
           {yTicks.map(v => {
             const y = getY(v);
@@ -1111,7 +1215,7 @@ function PositionChart({ poolLB, uid, claims }) {
                   strokeWidth={isEven ? 1.5 : 0.75}
                   strokeDasharray={isEven ? "none" : "2,3"} />
                 <text x={padL - 6} y={y + 4} textAnchor="end"
-                  fontSize={10} fontWeight={isEven ? 700 : 400}
+                  fontSize={fullScreen ? 13 : 10} fontWeight={isEven ? 700 : 400}
                   fill={isEven ? G : v < 0 ? "#dc3545" : "#888"}
                   fontFamily="Georgia,serif">
                   {fmtPar(v)}
@@ -1123,7 +1227,7 @@ function PositionChart({ poolLB, uid, claims }) {
           {/* X-axis labels */}
           {roundLabels.map((label, ri) => (
             <text key={"x" + ri} x={getX(ri)} y={H - padB + 20} textAnchor="middle"
-              fontSize={12} fontWeight={ri <= showUpTo ? 700 : 400}
+              fontSize={fullScreen ? 15 : 12} fontWeight={ri <= showUpTo ? 700 : 400}
               fill={ri <= showUpTo ? GD : "#ccc"} fontFamily="Georgia,serif">
               {label}
             </text>
@@ -1167,7 +1271,7 @@ function PositionChart({ poolLB, uid, claims }) {
             const pathD = uniquePoints.map((pt, i) => (i === 0 ? "M" : "L") + pt.x.toFixed(1) + "," + pt.y.toFixed(1)).join(" ");
             return (
               <path key={"trail-" + p.name} d={pathD} fill="none" stroke={color}
-                strokeWidth={isMe ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"
+                strokeWidth={fullScreen ? (isMe ? 4 : 2.5) : (isMe ? 3 : 1.5)} strokeLinecap="round" strokeLinejoin="round"
                 opacity={isAnimating ? (isMe ? 0.6 : 0.25) : (isMe ? 0.8 : 0.4)} />
             );
           })}
@@ -1177,7 +1281,7 @@ function PositionChart({ poolLB, uid, claims }) {
             const color = CHART_COLORS_DYN[pi % CHART_COLORS_DYN.length];
             const scores = scoreData[p.name];
             const isMe = claims[p.name] === uid;
-            const r = isMe ? 14 : 12;
+            const r = fullScreen ? (isMe ? 20 : 17) : (isMe ? 14 : 12);
 
             let fx, fy, displayScore;
             if (isAnimating) {
@@ -1195,16 +1299,29 @@ function PositionChart({ poolLB, uid, claims }) {
               displayScore = lastScore;
             }
 
+            const hasPhoto = !!photos[p.name];
+            const clipId = "clip-" + p.name.replace(/\s+/g, "-");
+
             return (
               <g key={p.name} transform={`translate(${fx.toFixed(1)},${fy.toFixed(1)})`}>
                 <circle cx={0} cy={2} r={r} fill="rgba(0,0,0,0.15)" />
-                <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
-                <text x={0} y={-1} textAnchor="middle" dominantBaseline="central"
-                  fontSize={r > 12 ? 10 : 9} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
-                  {p.name.substring(0, 2).toUpperCase()}
-                </text>
-                <text x={0} y={r + 9} textAnchor="middle"
-                  fontSize={8} fontWeight={600} fill={color} fontFamily="Arial,sans-serif">
+                {hasPhoto ? (
+                  <>
+                    <defs><clipPath id={clipId}><circle cx={0} cy={0} r={r - 1.5} /></clipPath></defs>
+                    <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
+                    <image href={photos[p.name]} x={-(r - 1.5)} y={-(r - 1.5)} width={(r - 1.5) * 2} height={(r - 1.5) * 2} clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
+                  </>
+                ) : (
+                  <>
+                    <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
+                    <text x={0} y={-1} textAnchor="middle" dominantBaseline="central"
+                      fontSize={fullScreen ? (r > 17 ? 13 : 11) : (r > 12 ? 10 : 9)} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
+                      {p.name.substring(0, fullScreen ? 3 : 2).toUpperCase()}
+                    </text>
+                  </>
+                )}
+                <text x={0} y={r + (fullScreen ? 12 : 9)} textAnchor="middle"
+                  fontSize={fullScreen ? 10 : 8} fontWeight={600} fill={color} fontFamily="Arial,sans-serif">
                   {fmtPar(displayScore)}
                 </text>
               </g>
@@ -1214,22 +1331,120 @@ function PositionChart({ poolLB, uid, claims }) {
       </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, justifyContent: "center" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: fullScreen ? 12 : 8, marginTop: fullScreen ? 12 : 8, justifyContent: "center", padding: fullScreen ? "0 12px" : 0 }}>
         {poolLB.map((p, pi) => {
           const color = CHART_COLORS_DYN[pi % CHART_COLORS_DYN.length];
           const isMe = claims[p.name] === uid;
           const scores = scoreData[p.name];
           const lastScore = [...scores].reverse().find(v => v != null);
           return (
-            <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: isMe ? 700 : 400 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
+            <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: fullScreen ? 13 : 11, fontWeight: isMe ? 700 : 400 }}>
+              {photos[p.name] ? (
+                <img src={photos[p.name]} alt="" style={{ width: fullScreen ? 18 : 12, height: fullScreen ? 18 : 12, borderRadius: "50%", objectFit: "cover", border: "1.5px solid " + color }} />
+              ) : (
+                <div style={{ width: fullScreen ? 14 : 10, height: fullScreen ? 14 : 10, borderRadius: "50%", background: color }} />
+              )}
               <span style={{ color: GD }}>{p.name}</span>
               {lastScore != null && <span style={{ color: "#888" }}>({fmtPar(lastScore)})</span>}
             </div>
           );
         })}
       </div>
-    </Card>
+    </Wrap>
+  );
+}
+
+function PhotoCapture({ playerName, currentPhoto, poolId, onSaved }) {
+  const fileRef = useRef(null);
+  const videoRef = useRef(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [stream, setStream] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const stopCamera = useCallback(() => {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); setStream(null); }
+    setShowCamera(false);
+  }, [stream]);
+
+  useEffect(() => () => { if (stream) stream.getTracks().forEach(t => t.stop()); }, [stream]);
+
+  const processImage = useCallback((blob) => {
+    const img = new Image();
+    img.onload = async () => {
+      const size = Math.min(img.width, img.height);
+      const ox = (img.width - size) / 2, oy = (img.height - size) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = 80; canvas.height = 80;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, ox, oy, size, size, 0, 0, 80, 80);
+      const base64 = canvas.toDataURL("image/jpeg", 0.7);
+      setSaving(true);
+      const ok = await savePhoto(poolId, playerName, base64);
+      setSaving(false);
+      if (ok && onSaved) onSaved(base64);
+    };
+    img.src = URL.createObjectURL(blob);
+  }, [poolId, playerName, onSaved]);
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (file) processImage(file);
+  };
+
+  const startCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 320, height: 320 } });
+      setStream(s);
+      setShowCamera(true);
+      setTimeout(() => { if (videoRef.current) videoRef.current.srcObject = s; }, 50);
+    } catch (e) {
+      console.error("Camera error:", e);
+    }
+  };
+
+  const takePhoto = () => {
+    if (!videoRef.current) return;
+    const v = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+    canvas.getContext("2d").drawImage(v, 0, 0);
+    canvas.toBlob((blob) => { if (blob) processImage(blob); }, "image/jpeg", 0.8);
+    stopCamera();
+  };
+
+  if (showCamera) {
+    return (
+      <div style={{ textAlign: "center" }}>
+        <video ref={videoRef} autoPlay playsInline muted style={{ width: 160, height: 160, objectFit: "cover", borderRadius: "50%", border: "3px solid " + G, background: "#000" }} />
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 8 }}>
+          <button style={{ background: G, color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer", fontFamily: "'Georgia',serif" }} onClick={takePhoto}>Take Photo</button>
+          <button style={{ background: "#eee", color: "#666", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer", fontFamily: "'Georgia',serif" }} onClick={stopCamera}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ textAlign: "center" }}>
+      <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", border: "3px solid " + G, margin: "0 auto 8px", background: "#f0f0f0" }}>
+        {currentPhoto ? (
+          <img src={currentPhoto} alt={playerName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, color: "#ccc" }}>
+            {playerName.substring(0, 1).toUpperCase()}
+          </div>
+        )}
+      </div>
+      {saving ? (
+        <div style={{ fontSize: 12, color: "#888" }}>Saving...</div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+          <button style={{ background: G, color: "white", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, cursor: "pointer", fontFamily: "'Georgia',serif" }} onClick={startCamera}>Camera</button>
+          <button style={{ background: "white", color: GD, border: "1px solid #ddd", borderRadius: 8, padding: "7px 14px", fontSize: 12, cursor: "pointer", fontFamily: "'Georgia',serif" }} onClick={() => fileRef.current?.click()}>Choose Photo</button>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
+        </div>
+      )}
+    </div>
   );
 }
 
