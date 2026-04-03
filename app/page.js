@@ -17,32 +17,32 @@ const THEMES = {
   masters: {
     G: "#006747", GD: "#004d35", GOLD: "#d4af37", CREAM: "#fdf8e8",
     BOARD_GREEN: "#1a472a", BOARD_DARK: "#0f2d1a",
-    chartColors: ["#006747", "#d4af37", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    chartColors: ["#006747", "#d4af37", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#E91E63", "#4CAF50", "#607D8B", "#FF5722", "#3F51B5", "#8BC34A"],
   },
   players: {
     G: "#002D72", GD: "#001A4B", GOLD: "#C8102E", CREAM: "#f0f4fa",
     BOARD_GREEN: "#0a1e3d", BOARD_DARK: "#061429",
-    chartColors: ["#002D72", "#C8102E", "#d4af37", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    chartColors: ["#002D72", "#C8102E", "#d4af37", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#E91E63", "#4CAF50", "#607D8B", "#FF5722", "#3F51B5", "#8BC34A"],
   },
   pga: {
     G: "#00205B", GD: "#001845", GOLD: "#B8860B", CREAM: "#f0f4fa",
     BOARD_GREEN: "#0a1535", BOARD_DARK: "#060e24",
-    chartColors: ["#00205B", "#B8860B", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    chartColors: ["#00205B", "#B8860B", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#E91E63", "#4CAF50", "#607D8B", "#FF5722", "#3F51B5", "#8BC34A"],
   },
   usopen: {
     G: "#003366", GD: "#002244", GOLD: "#C41E3A", CREAM: "#f5f5f5",
     BOARD_GREEN: "#0c1f33", BOARD_DARK: "#081422",
-    chartColors: ["#003366", "#C41E3A", "#d4af37", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    chartColors: ["#003366", "#C41E3A", "#d4af37", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#E91E63", "#4CAF50", "#607D8B", "#FF5722", "#3F51B5", "#8BC34A"],
   },
   open: {
     G: "#1C2841", GD: "#0f1a2e", GOLD: "#B8860B", CREAM: "#f5f2eb",
     BOARD_GREEN: "#141e30", BOARD_DARK: "#0a1220",
-    chartColors: ["#1C2841", "#B8860B", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    chartColors: ["#1C2841", "#B8860B", "#dc3545", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#E91E63", "#4CAF50", "#607D8B", "#FF5722", "#3F51B5", "#8BC34A"],
   },
   default: {
     G: "#C41E3A", GD: "#9B1530", GOLD: "#d4af37", CREAM: "#faf5f5",
     BOARD_GREEN: "#3d0c14", BOARD_DARK: "#2a0810",
-    chartColors: ["#C41E3A", "#d4af37", "#003366", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548"],
+    chartColors: ["#C41E3A", "#d4af37", "#003366", "#2196F3", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#E91E63", "#4CAF50", "#607D8B", "#FF5722", "#3F51B5", "#8BC34A"],
   },
 };
 
@@ -133,8 +133,23 @@ export default function App() {
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [joinInput, setJoinInput] = useState("");
   const [joinErr, setJoinErr] = useState("");
+  const [showSplash, setShowSplash] = useState(false);
 
   const unsubRef = useRef(null);
+
+  // --- Splash screen (once per session) ---
+  useEffect(() => {
+    try {
+      if (!sessionStorage.getItem("pga-pool-splash-seen")) {
+        setShowSplash(true);
+        const t = setTimeout(() => {
+          setShowSplash(false);
+          try { sessionStorage.setItem("pga-pool-splash-seen", "1"); } catch(e) {}
+        }, 3000);
+        return () => clearTimeout(t);
+      }
+    } catch(e) {}
+  }, []);
 
   // --- Apply tournament theme on every render ---
   applyTheme(eventName);
@@ -522,7 +537,7 @@ export default function App() {
     );
   }
 
-  if (screen === "loading") return <Shell><p style={{ textAlign: "center", color: "#999", padding: 40 }}>Loading...</p></Shell>;
+  if (showSplash || screen === "loading") return <SplashScreen eventName={eventName} fading={!showSplash} />;
 
   // ---- HOME ----
   if (screen === "home") return (
@@ -578,10 +593,10 @@ export default function App() {
             <span style={S.rowNum}>{i + 1}.</span>
             <input style={S.input} placeholder="Name..." value={n}
               onChange={e => { const u = [...names]; u[i] = e.target.value; setNames(u); }} />
-            {i >= 4 && <button style={S.xBtn} onClick={() => setNames(names.filter((_, j) => j !== i))}>✕</button>}
+            {names.length > 2 && <button style={S.xBtn} onClick={() => setNames(names.filter((_, j) => j !== i))}>✕</button>}
           </div>
         ))}
-        {names.length < 8 && <button style={S.dashed} onClick={() => setNames([...names, ""])}>+ Add Player</button>}
+        {names.length < 14 && <button style={S.dashed} onClick={() => setNames([...names, ""])}>+ Add Player</button>}
         <button style={{ ...S.primary, marginTop: 20, opacity: names.filter(n => n.trim()).length >= 2 ? 1 : 0.4 }}
           disabled={names.filter(n => n.trim()).length < 2}
           onClick={async () => {
@@ -1215,6 +1230,83 @@ function PositionChart({ poolLB, uid, claims }) {
         })}
       </div>
     </Card>
+  );
+}
+
+function SplashScreen({ eventName }) {
+  const theme = getTheme(eventName);
+  const isMasters = (eventName || "").toLowerCase().includes("masters");
+  const isPlayers = (eventName || "").toLowerCase().includes("players");
+  const isUSOpen = (eventName || "").toLowerCase().includes("u.s. open");
+  const isOpen = (eventName || "").toLowerCase().includes("open championship");
+  const isPGA = (eventName || "").toLowerCase().includes("pga champ");
+
+  let tournamentLabel = "PGA TOUR";
+  let tournamentSub = "Fantasy Golf Pool";
+  if (isMasters) { tournamentLabel = "THE MASTERS"; tournamentSub = "Augusta National Golf Club"; }
+  else if (isPlayers) { tournamentLabel = "THE PLAYERS"; tournamentSub = "TPC Sawgrass"; }
+  else if (isPGA) { tournamentLabel = "PGA CHAMPIONSHIP"; tournamentSub = "Fantasy Golf Pool"; }
+  else if (isUSOpen) { tournamentLabel = "U.S. OPEN"; tournamentSub = "Fantasy Golf Pool"; }
+  else if (isOpen) { tournamentLabel = "THE OPEN"; tournamentSub = "Championship"; }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: `linear-gradient(160deg, ${theme.G} 0%, ${theme.GD} 50%, ${theme.BOARD_GREEN} 100%)`,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      fontFamily: "'Georgia','Palatino',serif",
+      animation: "splashFadeIn 0.6s ease-out, splashFadeOut 0.6s ease-in 2.4s forwards",
+    }}>
+      {/* Flag pin icon */}
+      <div style={{ animation: "splashPulse 2s ease-in-out infinite", marginBottom: 24 }}>
+        <svg width="80" height="100" viewBox="0 0 80 100" fill="none">
+          {/* Pole */}
+          <rect x="38" y="15" width="3" height="75" rx="1.5" fill={theme.GOLD} opacity="0.9" />
+          {/* Flag */}
+          <path d="M41 15 L41 40 L65 32 L41 24 Z" fill={theme.GOLD} opacity="0.85" style={{ transformOrigin: "41px 27px", animation: "flagWave 3s ease-in-out infinite" }} />
+          {/* Ball */}
+          <circle cx="39.5" cy="92" r="5" fill="white" opacity="0.9" />
+          {/* Ground arc */}
+          <ellipse cx="39.5" cy="95" rx="20" ry="5" fill={hexToRgba(theme.GOLD, 0.15)} />
+        </svg>
+      </div>
+
+      {/* Glowing divider */}
+      <div style={{
+        width: 60, height: 2, borderRadius: 1,
+        background: `linear-gradient(90deg, transparent, ${theme.GOLD}, transparent)`,
+        marginBottom: 20,
+        animation: "splashPulse 2s ease-in-out infinite",
+      }} />
+
+      {/* Tournament name */}
+      <h1 style={{
+        margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: 6,
+        color: theme.GOLD,
+        textShadow: `0 2px 20px ${hexToRgba(theme.GOLD, 0.4)}`,
+        animation: "splashSlideUp 0.8s ease-out 0.3s both",
+      }}>{tournamentLabel}</h1>
+
+      <p style={{
+        margin: "8px 0 0", fontSize: 13, letterSpacing: 3,
+        color: "rgba(255,255,255,0.6)",
+        animation: "splashSlideUp 0.8s ease-out 0.5s both",
+      }}>{tournamentSub}</p>
+
+      {/* Loading indicator */}
+      <div style={{
+        marginTop: 40,
+        display: "flex", gap: 6, alignItems: "center",
+        animation: "splashSlideUp 0.8s ease-out 0.7s both",
+      }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{
+            width: 6, height: 6, borderRadius: "50%", background: theme.GOLD, opacity: 0.5,
+            animation: `splashPulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }} />
+        ))}
+      </div>
+    </div>
   );
 }
 
