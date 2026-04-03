@@ -1214,6 +1214,19 @@ function PositionChart({ poolLB, uid, claims, photos = {}, fullScreen }) {
       </div>
       <div style={{ overflowX: "auto", padding: fullScreen ? "0 4px" : 0 }}>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: fullScreen ? "100%" : W, display: "block", margin: "0 auto" }}>
+          {/* Photo pattern defs */}
+          <defs>
+            {poolLB.map((p, pi) => {
+              if (!photos[p.name]) return null;
+              const r = fullScreen ? (claims[p.name] === uid ? 20 : 17) : (claims[p.name] === uid ? 14 : 12);
+              const d = r * 2;
+              return (
+                <pattern key={"pat-" + pi} id={"pat-" + pi} patternUnits="objectBoundingBox" width="1" height="1">
+                  <image href={photos[p.name]} width={d} height={d} preserveAspectRatio="xMidYMid slice" />
+                </pattern>
+              );
+            })}
+          </defs>
           {/* Grid lines + Y-axis labels */}
           {yTicks.map(v => {
             const y = getY(v);
@@ -1310,25 +1323,17 @@ function PositionChart({ poolLB, uid, claims, photos = {}, fullScreen }) {
             }
 
             const hasPhoto = !!photos[p.name];
-            const clipId = "clip-" + p.name.replace(/\s+/g, "-");
+            const patId = "pat-" + pi;
 
             return (
               <g key={p.name} transform={`translate(${fx.toFixed(1)},${fy.toFixed(1)})`}>
                 <circle cx={0} cy={2} r={r} fill="rgba(0,0,0,0.15)" />
-                {hasPhoto ? (
-                  <>
-                    <defs><clipPath id={clipId}><circle cx={0} cy={0} r={r - 1.5} /></clipPath></defs>
-                    <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
-                    <image href={photos[p.name]} x={-(r - 1.5)} y={-(r - 1.5)} width={(r - 1.5) * 2} height={(r - 1.5) * 2} clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
-                  </>
-                ) : (
-                  <>
-                    <circle cx={0} cy={0} r={r} fill={color} stroke="white" strokeWidth={2.5} />
-                    <text x={0} y={-1} textAnchor="middle" dominantBaseline="central"
-                      fontSize={fullScreen ? (r > 17 ? 13 : 11) : (r > 12 ? 10 : 9)} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
-                      {p.name.substring(0, fullScreen ? 3 : 2).toUpperCase()}
-                    </text>
-                  </>
+                <circle cx={0} cy={0} r={r} fill={hasPhoto ? `url(#${patId})` : color} stroke="white" strokeWidth={2.5} />
+                {!hasPhoto && (
+                  <text x={0} y={-1} textAnchor="middle" dominantBaseline="central"
+                    fontSize={fullScreen ? (r > 17 ? 13 : 11) : (r > 12 ? 10 : 9)} fontWeight={700} fill="white" fontFamily="Arial,sans-serif">
+                    {p.name.substring(0, fullScreen ? 3 : 2).toUpperCase()}
+                  </text>
                 )}
                 <text x={0} y={r + (fullScreen ? 12 : 9)} textAnchor="middle"
                   fontSize={fullScreen ? 10 : 8} fontWeight={600} fill={color} fontFamily="Arial,sans-serif">
