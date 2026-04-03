@@ -706,6 +706,16 @@ export default function App() {
                 fontFamily: "'Georgia',serif", fontSize: 15,
               }}
               onClick={async () => {
+                // Tapping your own name unclaims you
+                if (claims[name] === uid) {
+                  const ok = await claimPlayer(poolId, name, null);
+                  if (ok) { setMyName(null); localStorage.removeItem("pga-pool-name"); notify("Unclaimed " + name); }
+                  return;
+                }
+                // Unclaim previous name first if switching
+                if (myName && myName !== name && claims[myName] === uid) {
+                  await claimPlayer(poolId, myName, null);
+                }
                 const ok = await claimPlayer(poolId, name, uid);
                 if (ok) {
                   setMyName(name);
@@ -721,7 +731,7 @@ export default function App() {
                 {name}
               </span>
               <span style={{ fontSize: 12, color: claimedByMe ? G : claimedByOther ? "#888" : "#999" }}>
-                {claimedByMe ? "You" : claimedByOther ? "Claimed — tap to reclaim" : "Tap to claim"}
+                {claimedByMe ? "You ✓ tap to unclaim" : claimedByOther ? "Claimed — tap to reclaim" : "Tap to claim"}
               </span>
             </button>
           );
