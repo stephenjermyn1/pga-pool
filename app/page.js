@@ -438,6 +438,19 @@ export default function App() {
     navigator.clipboard.writeText(url).then(() => notify("Invite link copied!")).catch(() => notify("Couldn't copy"));
   };
 
+  const leavePool = () => {
+    if (unsubRef.current) unsubRef.current();
+    localStorage.removeItem("pga-pool-id");
+    localStorage.removeItem("pga-pool-name");
+    setPoolId(null); setPlayers([]); setDraftOrder([]); setPickIdx(0);
+    setPicks({}); setDraftDone(false); setEspnField([]); setEventName("");
+    setNames(["", "", "", ""]); setMyName(null); setJoinCode("");
+    setClaims({}); setPhotos({}); setAdminUid(null); setIsAdmin(false);
+    // Clear URL params if present
+    if (window.location.search) window.history.replaceState({}, "", window.location.pathname);
+    setScreen("home");
+  };
+
   // ---- Event Picker ----
   const EventPicker = showEventPicker ? (
     <div style={S.overlay}>
@@ -474,7 +487,7 @@ export default function App() {
     const g = espnField.find(f => f.name === golferDetail) || espnField.find(f => f.name.toLowerCase().includes(golferDetail.toLowerCase()));
     const p = athleteProfile;
     return (
-      <Shell joinCode={poolId ? joinCode : null}>
+      <Shell joinCode={poolId ? joinCode : null} onHome={poolId ? leavePool : undefined}>
         <button style={{ ...S.ctrl, marginBottom: 10 }} onClick={() => setGolferDetail(null)}>← Back</button>
 
         {/* Profile header card */}
@@ -680,9 +693,12 @@ export default function App() {
 
   // ---- JOIN (Claim Name) ----
   if (screen === "join") return (
-    <Shell joinCode={joinCode}>
+    <Shell joinCode={joinCode} onHome={leavePool}>
       <Card>
-        <h2 style={S.title}>Join Pool</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <h2 style={{ ...S.title, margin: 0 }}>Join Pool</h2>
+          <button style={{ ...S.ctrl, fontSize: 11 }} onClick={leavePool}>← Home</button>
+        </div>
         <div style={{ background: CREAM, border: "2px dashed " + GOLD, borderRadius: 10, padding: 16, textAlign: "center", marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: "#888", letterSpacing: 2, marginBottom: 4 }}>POOL CODE</div>
           <div style={{ fontSize: 32, fontWeight: 700, color: GD, letterSpacing: 6 }}>{joinCode}</div>
@@ -820,7 +836,7 @@ export default function App() {
     };
 
     if (draftDone) return (
-      <Shell joinCode={joinCode}>
+      <Shell joinCode={joinCode} onHome={leavePool}>
         <Card>
           <h2 style={{ ...S.title, color: G, textAlign: "center" }}>Draft Complete!</h2>
           <p style={{ ...S.sub, textAlign: "center", fontWeight: 600 }}>{eventName}</p>
@@ -837,7 +853,7 @@ export default function App() {
     );
 
     return (
-      <Shell joinCode={joinCode}>
+      <Shell joinCode={joinCode} onHome={leavePool}>
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={S.badge}>Round {round}/{PICKS}</span>
@@ -916,7 +932,7 @@ export default function App() {
 
   // ---- LEADERBOARD ----
   if (screen === "leaderboard") return (
-    <Shell joinCode={joinCode}>
+    <Shell joinCode={joinCode} onHome={leavePool}>
       <div style={S.eventBanner}>
         <div style={{ fontSize: 11, letterSpacing: 2, color: GOLD, fontWeight: 700 }}>
           {tournamentDone ? "FINAL" : espnField.some(f => f.holesPlayed > 0) ? "LIVE" : "LEADERBOARD"}
@@ -935,14 +951,13 @@ export default function App() {
         <button style={S.ctrl} onClick={() => setShowRules(!showRules)}>Rules</button>
         <button style={S.ctrl} onClick={() => setScreen("draft")}>Draft</button>
         <button style={S.ctrl} onClick={copyInviteLink}>Share</button>
+        <button style={S.ctrl} onClick={leavePool}>Leave</button>
         {isAdmin && (
-          <button style={{ ...S.ctrl, marginLeft: "auto", color: "#dc3545", borderColor: "#dc3545" }}
-            onClick={() => { if (confirm("Reset everything? This cannot be undone.")) {
+          <button style={{ ...S.ctrl, color: "#dc3545", borderColor: "#dc3545" }}
+            onClick={() => { if (confirm("Delete this pool? This cannot be undone.")) {
               savePool(poolId, null);
-              localStorage.removeItem("pga-pool-id");
-              localStorage.removeItem("pga-pool-name");
-              setPoolId(null); setPlayers([]); setDraftOrder([]); setPickIdx(0); setPicks({}); setDraftDone(false); setEspnField([]); setEventName(""); setNames(["", "", "", ""]); setMyName(null); setJoinCode(""); setScreen("home");
-            } }}>Reset</button>
+              leavePool();
+            } }}>Delete</button>
         )}
       </div>
       {lastUpdated && <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}>Updated: {lastUpdated}</div>}
@@ -1540,12 +1555,12 @@ function SplashScreen({ eventName }) {
   );
 }
 
-function Shell({ children, joinCode }) {
+function Shell({ children, joinCode, onHome }) {
   return (
     <div style={{ fontFamily: "'Georgia','Palatino',serif", maxWidth: 680, margin: "0 auto", padding: "0 10px 50px", background: CREAM, minHeight: "100vh" }}>
       <div style={{ background: "linear-gradient(135deg," + G + "," + GD + ")", margin: "0 -10px", padding: "18px", marginBottom: 16, boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ fontSize: 32, background: "rgba(255,255,255,0.12)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>⛳</div>
+          <div onClick={onHome} style={{ fontSize: 32, background: "rgba(255,255,255,0.12)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", cursor: onHome ? "pointer" : "default" }}>⛳</div>
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: GOLD, letterSpacing: 2.5 }}>PGA TOUR POOL</h1>
             <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", letterSpacing: 1 }}>Snake Draft & Live Leaderboard</p>
