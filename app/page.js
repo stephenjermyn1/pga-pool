@@ -134,6 +134,9 @@ export default function App() {
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [showImportField, setShowImportField] = useState(false);
   const [importText, setImportText] = useState("");
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [joinInput, setJoinInput] = useState("");
   const [joinErr, setJoinErr] = useState("");
   const [showSplash, setShowSplash] = useState(false);
@@ -438,6 +441,39 @@ export default function App() {
   const copyInviteLink = () => {
     const url = `${window.location.origin}${window.location.pathname}?pool=${joinCode}`;
     navigator.clipboard.writeText(url).then(() => notify("Invite link copied!")).catch(() => notify("Couldn't copy"));
+  };
+
+  const fetchCalendar = async () => {
+    setCalendarLoading(true);
+    try {
+      const resp = await fetch("/api/espn/calendar");
+      if (!resp.ok) throw new Error("API returned " + resp.status);
+      const data = await resp.json();
+      setCalendarEvents(data.upcoming || []);
+      setShowCalendar(true);
+    } catch (e) {
+      console.error(e);
+      notify("Couldn't load calendar");
+    }
+    setCalendarLoading(false);
+  };
+
+  const selectTournament = async (event) => {
+    setShowCalendar(false);
+    if (event.hasField) {
+      // ESPN has the field — fetch it
+      await fetchESPN(0);
+      if (event.name) {
+        setEventName(event.name);
+        if (poolId) updatePool(poolId, { eventName: event.name });
+      }
+    } else {
+      // No field yet — set event name and open import
+      setEventName(event.name);
+      if (poolId) updatePool(poolId, { eventName: event.name });
+      setShowImportField(true);
+      notify(`${event.name} — no ESPN field yet, import one manually`);
+    }
   };
 
   const importField = (text) => {
@@ -955,9 +991,10 @@ export default function App() {
               {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => doPick(golfer)}>{golfer}</button>))}
             </div>
             {espnField.length === 0 && (
-              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <button style={{ ...S.primary, flex: 1, fontSize: 13, padding: "10px 16px" }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>{isLoading ? "Fetching..." : "Fetch from ESPN"}</button>
-                {isAdmin && <button style={{ ...S.smallBtn, fontSize: 13, padding: "10px 16px" }} onClick={() => setShowImportField(true)}>Import Field</button>}
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <button style={{ ...S.primary, flex: 1, fontSize: 13, padding: "10px 16px", minWidth: 120 }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>{isLoading ? "Fetching..." : "Fetch from ESPN"}</button>
+                {isAdmin && <button style={{ ...S.smallBtn, fontSize: 13, padding: "10px 16px" }} onClick={fetchCalendar} disabled={calendarLoading}>{calendarLoading ? "..." : "Upcoming"}</button>}
+                {isAdmin && <button style={{ ...S.smallBtn, fontSize: 13, padding: "10px 16px" }} onClick={() => setShowImportField(true)}>Import</button>}
               </div>
             )}
           </Card>
@@ -971,6 +1008,40 @@ export default function App() {
           notify("Undone");
         }}>↩ Undo Last Pick</button>}
         {EventPicker}
+        {showCalendar && (
+          <div style={S.overlay}>
+            <div style={{ ...S.modal, maxWidth: 440 }}>
+              <h3 style={S.title}>Upcoming Tournaments</h3>
+              <p style={S.sub}>Select a tournament. If the field isn't on ESPN yet, you can import one.</p>
+              <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                {calendarEvents.map(ev => {
+                  const start = new Date(ev.startDate);
+                  const dateStr = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const isCurrent = ev.isThisWeek;
+                  return (
+                    <button key={ev.id} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      width: "100%", padding: "12px 14px", marginBottom: 6,
+                      borderRadius: 10, cursor: "pointer",
+                      border: isCurrent ? "2px solid " + G : "2px solid #e8e8e8",
+                      background: isCurrent ? CREAM : "white",
+                      fontFamily: "'Georgia',serif", fontSize: 14, textAlign: "left",
+                    }} onClick={() => selectTournament(ev)}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: GD }}>{ev.name}</div>
+                        <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{dateStr}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: ev.hasField ? G : "#999", fontWeight: 600 }}>
+                        {ev.hasField ? "Field ready" : "Import needed"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <button style={{ ...S.ctrl, marginTop: 8, width: "100%" }} onClick={() => setShowCalendar(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
         {showImportField && (
           <div style={S.overlay}>
             <div style={{ ...S.modal, maxWidth: 500 }}>
