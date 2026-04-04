@@ -132,6 +132,8 @@ export default function App() {
   const [showFullLB, setShowFullLB] = useState(false);
   const [golferDetail, setGolferDetail] = useState(null);
   const [showEventPicker, setShowEventPicker] = useState(false);
+  const [showImportField, setShowImportField] = useState(false);
+  const [importText, setImportText] = useState("");
   const [joinInput, setJoinInput] = useState("");
   const [joinErr, setJoinErr] = useState("");
   const [showSplash, setShowSplash] = useState(false);
@@ -436,6 +438,44 @@ export default function App() {
   const copyInviteLink = () => {
     const url = `${window.location.origin}${window.location.pathname}?pool=${joinCode}`;
     navigator.clipboard.writeText(url).then(() => notify("Invite link copied!")).catch(() => notify("Couldn't copy"));
+  };
+
+  const importField = (text) => {
+    const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+    const golfers = lines.map(line => {
+      // Detect "LASTNAME, Firstname" or "Lastname, Firstname" format
+      if (line.includes(",")) {
+        const [last, first] = line.split(",").map(s => s.trim());
+        if (first && last) {
+          // Handle ALL CAPS: "MCILROY" → "McIlroy" isn't easy, so just title-case
+          const fixCase = (s) => {
+            if (s === s.toUpperCase() && s.length > 2) {
+              return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+            }
+            return s;
+          };
+          return `${first} ${fixCase(last)}`;
+        }
+      }
+      return line;
+    });
+    // Create espnField-compatible entries
+    const field = golfers.map((name, i) => ({
+      name,
+      order: i + 1,
+      scoreToPar: "—",
+      holesPlayed: 0,
+      status: "active",
+      rounds: [],
+      country: "",
+      countryFlag: "",
+      athleteId: null,
+      roundsCompleted: 0,
+    }));
+    setEspnField(field);
+    setShowImportField(false);
+    setImportText("");
+    notify(`Imported ${field.length} golfers`);
   };
 
   const leavePool = () => {
@@ -914,7 +954,12 @@ export default function App() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, maxHeight: 350, overflowY: "auto" }}>
               {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => doPick(golfer)}>{golfer}</button>))}
             </div>
-            {espnField.length === 0 && <button style={{ ...S.primary, marginTop: 10, fontSize: 13, padding: "10px 16px" }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>{isLoading ? "Fetching..." : "Fetch Field from ESPN"}</button>}
+            {espnField.length === 0 && (
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button style={{ ...S.primary, flex: 1, fontSize: 13, padding: "10px 16px" }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>{isLoading ? "Fetching..." : "Fetch from ESPN"}</button>
+                {isAdmin && <button style={{ ...S.smallBtn, fontSize: 13, padding: "10px 16px" }} onClick={() => setShowImportField(true)}>Import Field</button>}
+              </div>
+            )}
           </Card>
         )}
 
@@ -925,7 +970,46 @@ export default function App() {
           saveState({ picks: u, pickIdx: prev, draftDone: false });
           notify("Undone");
         }}>↩ Undo Last Pick</button>}
-        {EventPicker}<Toast msg={toast} />
+        {EventPicker}
+        {showImportField && (
+          <div style={S.overlay}>
+            <div style={{ ...S.modal, maxWidth: 500 }}>
+              <h3 style={S.title}>Import Field</h3>
+              <p style={S.sub}>Paste golfer names, one per line. Supports "Lastname, Firstname" format (auto-converts).</p>
+              {!eventName && (
+                <input
+                  style={{ ...S.input, marginBottom: 8 }}
+                  placeholder="Tournament name (e.g. The Masters)"
+                  id="import-event-name"
+                />
+              )}
+              <textarea
+                value={importText}
+                onChange={e => setImportText(e.target.value)}
+                placeholder={"Scheffler, Scottie\nMcIlroy, Rory\nRahm, Jon\n..."}
+                style={{ width: "100%", minHeight: 200, padding: 10, borderRadius: 8, border: "1px solid #ddd", fontSize: 13, fontFamily: "'Georgia',serif", resize: "vertical", boxSizing: "border-box" }}
+              />
+              <div style={{ fontSize: 12, color: "#888", margin: "6px 0" }}>
+                {importText.split("\n").filter(l => l.trim()).length} golfers detected
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button style={S.primary} onClick={() => {
+                    const nameInput = document.getElementById("import-event-name");
+                    if (nameInput?.value?.trim() && !eventName) {
+                      setEventName(nameInput.value.trim());
+                      if (poolId) updatePool(poolId, { eventName: nameInput.value.trim() });
+                    }
+                    importField(importText);
+                  }}
+                  disabled={importText.split("\n").filter(l => l.trim()).length < 2}>
+                  Import {importText.split("\n").filter(l => l.trim()).length} Golfers
+                </button>
+                <button style={S.ctrl} onClick={() => { setShowImportField(false); setImportText(""); }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+        <Toast msg={toast} />
       </Shell>
     );
   }
