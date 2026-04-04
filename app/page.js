@@ -6,7 +6,7 @@ import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lo
 let G, GD, GOLD, CREAM, BOARD_GREEN, BOARD_DARK;
 const BOARD_YELLOW = "#f4d03f", BOARD_RED = "#e74c3c";
 let CHART_COLORS_DYN;
-const PICKS = 5, BEST_OF = 3, WINNER_BONUS = -10, MC_SCORE = 80, PAR = 72;
+const PICKS = 6, BEST_OF = 4, WINNER_BONUS = -10, MC_SCORE = 80, PAR = 72;
 
 function hexToRgba(hex, a) {
   const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -1121,7 +1121,7 @@ export default function App() {
       {showRules && (
         <Card>
           <h3 style={S.sec}>Scoring Rules</h3>
-          <p style={S.rule}>Your <strong>best 3 of 5</strong> golfers count (lowest combined to-par score).</p>
+          <p style={S.rule}>Your <strong>best {BEST_OF} of {PICKS}</strong> golfers count (lowest combined to-par score).</p>
           <p style={S.rule}>If your golfer <strong>wins the tournament</strong>: −10 from your total.</p>
           <p style={S.rule}>Missed cut golfers get <strong>+8 per missed round</strong> (80 on par 72).</p>
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #eee", display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>
@@ -1362,7 +1362,7 @@ function PositionChart({ poolLB, uid, claims, photos = {}, fullScreen }) {
         <div>
           {!fullScreen && <h3 style={{ margin: 0, fontSize: 15, color: GD }}>Score Tracker</h3>}
           <p style={{ margin: "2px 0 0", fontSize: fullScreen ? 13 : 11, color: "#888" }}>
-            {isAnimating ? `After ${roundLabels[Math.min(Math.round(showUpTo), numRounds - 1)]}` : "Combined score (best 3) after each round"}
+            {isAnimating ? `After ${roundLabels[Math.min(Math.round(showUpTo), numRounds - 1)]}` : `Combined score (best ${BEST_OF}) after each round`}
           </p>
         </div>
         {numRounds > 1 && (
