@@ -6,7 +6,7 @@ import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lo
 let G, GD, GOLD, CREAM, BOARD_GREEN, BOARD_DARK;
 const BOARD_YELLOW = "#f4d03f", BOARD_RED = "#e74c3c";
 let CHART_COLORS_DYN;
-const PICKS = 6, BEST_OF = 4, WINNER_BONUS = -10, MC_SCORE = 80, PAR = 72;
+const PICKS = 6, BEST_OF = 4, WINNER_BONUS = -5, MC_SCORE = 80, PAR = 72;
 
 function hexToRgba(hex, a) {
   const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -1718,7 +1718,7 @@ export default function App() {
         <Card>
           <h3 style={S.sec}>Scoring Rules</h3>
           <p style={S.rule}>Your <strong>best {BEST_OF} of {PICKS}</strong> golfers count (lowest combined to-par score).</p>
-          <p style={S.rule}>If your golfer <strong>wins the tournament</strong>: −10 from your total.</p>
+          <p style={S.rule}>If your golfer <strong>wins the tournament</strong>: −5 from your total.</p>
           <p style={S.rule}>Missed cut golfers get <strong>+8 per missed round</strong> (80 on par 72).</p>
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #eee", display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>
             <span><strong style={{ color: G }}>68</strong> = finished round</span>
@@ -1804,7 +1804,7 @@ export default function App() {
                     <div style={{ fontSize: 20, fontWeight: 700, color: scoreColor, fontFamily: "'Georgia',serif" }}>
                       {e.hasScores ? fmtPar(e.combinedPar) : "—"}
                     </div>
-                    {e.hasWinner && <div style={{ fontSize: 9, color: BOARD_YELLOW, fontWeight: 700 }}>−10 BONUS</div>}
+                    {e.hasWinner && <div style={{ fontSize: 9, color: BOARD_YELLOW, fontWeight: 700 }}>−5 BONUS</div>}
                   </div>
                 </div>
                 {isExp && (
@@ -1835,7 +1835,7 @@ export default function App() {
                     })}
                     <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 6, marginTop: 4, fontSize: 11, color: "rgba(255,255,255,0.5)", textAlign: "center" }}>
                       Best {BEST_OF} = <strong style={{ color: e.combinedPar - (e.hasWinner ? WINNER_BONUS : 0) < 0 ? BOARD_RED : BOARD_YELLOW }}>{fmtPar(e.combinedPar - (e.hasWinner ? WINNER_BONUS : 0))}</strong>
-                      {e.hasWinner && <span style={{ color: BOARD_YELLOW }}> + bonus (−10) = <strong>{fmtPar(e.combinedPar)}</strong></span>}
+                      {e.hasWinner && <span style={{ color: BOARD_YELLOW }}> + bonus (−5) = <strong>{fmtPar(e.combinedPar)}</strong></span>}
                     </div>
                   </div>
                 )}
