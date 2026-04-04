@@ -137,6 +137,8 @@ export default function App() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
+  const [editingPicks, setEditingPicks] = useState(null); // { player, pickIdx } or null
+  const [editSearch, setEditSearch] = useState("");
   const [joinInput, setJoinInput] = useState("");
   const [joinErr, setJoinErr] = useState("");
   const [showSplash, setShowSplash] = useState(false);
@@ -317,11 +319,25 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyPoolData(data) {
-    setPlayers(data.players || []);
-    setDraftOrder(data.draftOrder || []);
+    const p = data.players || [];
+    let order = data.draftOrder || [];
+    // Auto-extend draft order if PICKS increased (e.g. 5→6 rounds)
+    const expectedLen = p.length * PICKS;
+    if (p.length > 0 && order.length > 0 && order.length < expectedLen) {
+      const existingRounds = order.length / p.length;
+      const extraRounds = [];
+      for (let i = existingRounds; i < PICKS; i++) {
+        extraRounds.push(...(i % 2 === 0 ? p : [...p].reverse()));
+      }
+      order = [...order, ...extraRounds];
+    }
+    setPlayers(p);
+    setDraftOrder(order);
     setPickIdx(data.pickIdx || 0);
     setPicks(data.picks || {});
-    setDraftDone(data.draftDone || false);
+    // Only mark done if we've actually completed all PICKS rounds
+    const shouldBeDone = (data.pickIdx || 0) >= expectedLen;
+    setDraftDone(p.length > 0 ? shouldBeDone : (data.draftDone || false));
     setEventName(data.eventName || "");
     setSelectedEvent(data.selectedEvent || 0);
   }
@@ -911,6 +927,40 @@ export default function App() {
       notify(done ? "Draft complete!" : drafter + " picked " + golfer);
     };
 
+    const allPickedForEdit = Object.values(picks).flat();
+    const EditPicksModal = editingPicks ? (() => {
+      const { player, pickIndex } = editingPicks;
+      const currentGolfer = (picks[player] || [])[pickIndex];
+      const availableForSwap = espnField.map(f => f.name).filter(g => !allPickedForEdit.includes(g) || g === currentGolfer);
+      const filteredSwap = editSearch ? availableForSwap.filter(g => g.toLowerCase().includes(editSearch.toLowerCase())) : availableForSwap;
+      return (
+        <div style={S.overlay}>
+          <div style={{ ...S.modal, maxWidth: 440 }}>
+            <h3 style={S.title}>Edit Pick — {player}</h3>
+            <p style={S.sub}>Replacing: <strong>{currentGolfer}</strong></p>
+            <input style={S.searchInput} placeholder="Search golfers..." value={editSearch} onChange={e => setEditSearch(e.target.value)} autoFocus />
+            <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+              {filteredSwap.map(golfer => (
+                <button key={golfer} style={{ ...S.golferBtn, background: golfer === currentGolfer ? CREAM : "white", fontWeight: golfer === currentGolfer ? 700 : 400 }}
+                  onClick={() => {
+                    const u = { ...picks };
+                    const arr = [...(u[player] || [])];
+                    arr[pickIndex] = golfer;
+                    u[player] = arr;
+                    setPicks(u);
+                    saveState({ picks: u });
+                    setEditingPicks(null);
+                    setEditSearch("");
+                    notify(`Swapped ${currentGolfer} → ${golfer} for ${player}`);
+                  }}>{golfer}</button>
+              ))}
+            </div>
+            <button style={{ ...S.ctrl, marginTop: 10, width: "100%" }} onClick={() => { setEditingPicks(null); setEditSearch(""); }}>Cancel</button>
+          </div>
+        </div>
+      );
+    })() : null;
+
     if (draftDone) return (
       <Shell joinCode={joinCode} onHome={leavePool}>
         <Card>
@@ -919,11 +969,17 @@ export default function App() {
           {players.map(p => (
             <div key={p} style={S.teamCard}>
               <div style={S.teamName}>{p} {claims[p] === uid && <span style={{ fontSize: 11, color: GOLD }}>(You)</span>}</div>
-              {(picks[p] || []).map((g, i) => (<div key={g} style={{ fontSize: 13, padding: "3px 0", color: "#333" }}><span style={{ color: G, fontWeight: 700, fontSize: 12, marginRight: 6 }}>#{i + 1}</span>{g}</div>))}
+              {(picks[p] || []).map((g, i) => (
+                <div key={g} style={{ fontSize: 13, padding: "3px 0", color: "#333", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span><span style={{ color: G, fontWeight: 700, fontSize: 12, marginRight: 6 }}>#{i + 1}</span>{g}</span>
+                  {isAdmin && <button style={{ background: "none", border: "none", fontSize: 11, color: "#999", cursor: "pointer", padding: "2px 6px" }} onClick={() => setEditingPicks({ player: p, pickIndex: i })}>✎</button>}
+                </div>
+              ))}
             </div>
           ))}
           <button style={S.primary} onClick={() => setScreen("leaderboard")}>Go to Leaderboard</button>
         </Card>
+        {EditPicksModal}
         {EventPicker}<Toast msg={toast} />
       </Shell>
     );
