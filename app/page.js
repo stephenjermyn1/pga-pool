@@ -357,7 +357,8 @@ export default function App() {
       applyTournamentData(t, p);
       // If the viewed tournament has a persisted imported field, load it
       if (t.importedField) {
-        setEspnField(t.importedField);
+        const field = Array.isArray(t.importedField) ? t.importedField : Object.values(t.importedField);
+        setEspnField(field);
       }
     } else {
       // Old format: flat pool data — synthesize a single tournament
@@ -379,7 +380,9 @@ export default function App() {
   }
 
   function applyTournamentData(t, p) {
+    // Firebase may return arrays as objects with numeric keys — convert back
     let order = t.draftOrder || [];
+    if (order && !Array.isArray(order)) order = Object.values(order);
     // Auto-extend draft order if PICKS increased (e.g. 5→6 rounds)
     const expectedLen = p.length * PICKS;
     if (p.length > 0 && order.length > 0 && order.length < expectedLen) {
@@ -392,7 +395,13 @@ export default function App() {
     }
     setDraftOrder(order);
     setPickIdx(t.pickIdx || 0);
-    setPicks(t.picks || {});
+    // Firebase may return pick arrays as objects too — normalize
+    const rawPicks = t.picks || {};
+    const normalizedPicks = {};
+    for (const [k, v] of Object.entries(rawPicks)) {
+      normalizedPicks[k] = Array.isArray(v) ? v : (v ? Object.values(v) : []);
+    }
+    setPicks(normalizedPicks);
     // Only mark done if we've actually completed all PICKS rounds
     const shouldBeDone = (t.pickIdx || 0) >= expectedLen;
     setDraftDone(p.length > 0 ? shouldBeDone : (t.draftDone || false));
@@ -405,16 +414,16 @@ export default function App() {
     if (!poolId) return;
     const tid = viewingTournamentId;
     if (tid && tid !== "legacy") {
-      // New multi-tournament format: save tournament-specific data
-      const tData = {
+      // New multi-tournament format: use update() to avoid wiping importedField, createdAt, etc.
+      const updates = {
         eventName, selectedEvent, draftOrder, pickIdx, picks, draftDone,
         ...overrides,
       };
       // Remove non-tournament keys that might be in overrides
-      delete tData.players; delete tData.joinCode; delete tData.adminUid; delete tData.claims;
-      saveTournament(poolId, tid, tData);
+      delete updates.players; delete updates.joinCode; delete updates.adminUid; delete updates.claims;
+      updateTournament(poolId, tid, updates);
       // Also keep the tournaments map in sync locally
-      setTournaments(prev => ({ ...prev, [tid]: { ...prev[tid], ...tData } }));
+      setTournaments(prev => ({ ...prev, [tid]: { ...prev[tid], ...updates } }));
     } else {
       // Legacy format: save flat
       const state = {
@@ -639,7 +648,8 @@ export default function App() {
     applyTournamentData(t, players);
     // Load the tournament's imported field if it exists, otherwise clear
     if (t.importedField) {
-      setEspnField(t.importedField);
+      const field = Array.isArray(t.importedField) ? t.importedField : Object.values(t.importedField);
+      setEspnField(field);
     } else {
       setEspnField([]);
     }
