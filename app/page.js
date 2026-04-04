@@ -2255,24 +2255,86 @@ function SplashScreen({ eventName }) {
       fontFamily: "'Georgia','Palatino',serif",
       animation: "splashFadeIn 0.6s ease-out, splashFadeOut 0.6s ease-in 2.4s forwards",
     }}>
-      {/* Flag pin icon */}
+      {/* Splash icon — azaleas for Masters, flag pin for others */}
       <div style={{ animation: "splashPulse 2s ease-in-out infinite", marginBottom: 24 }}>
-        <svg width="80" height="100" viewBox="0 0 80 100" fill="none">
-          {/* Pole */}
-          <rect x="38" y="15" width="3" height="75" rx="1.5" fill={theme.GOLD} opacity="0.9" />
-          {/* Flag */}
-          <path d="M41 15 L41 40 L65 32 L41 24 Z" fill={theme.GOLD} opacity="0.85" style={{ transformOrigin: "41px 27px", animation: "flagWave 3s ease-in-out infinite" }} />
-          {/* Ball */}
-          <circle cx="39.5" cy="92" r="5" fill="white" opacity="0.9" />
-          {/* Ground arc */}
-          <ellipse cx="39.5" cy="95" rx="20" ry="5" fill={hexToRgba(theme.GOLD, 0.15)} />
-        </svg>
+        {isMasters ? (
+          <svg width="120" height="110" viewBox="0 0 120 110" fill="none">
+            {/* Azalea cluster — left bloom */}
+            <g transform="translate(18, 30)" opacity="0.9">
+              {[0, 72, 144, 216, 288].map((angle, i) => (
+                <ellipse key={i} cx="0" cy="-12" rx="7" ry="13"
+                  fill={i % 2 === 0 ? "#E91E63" : "#F06292"}
+                  transform={`rotate(${angle})`} />
+              ))}
+              <circle cx="0" cy="0" r="4" fill="#FFEB3B" opacity="0.9" />
+            </g>
+            {/* Center bloom (larger) */}
+            <g transform="translate(60, 22)" opacity="0.95">
+              {[0, 60, 120, 180, 240, 300].map((angle, i) => (
+                <ellipse key={i} cx="0" cy="-16" rx="9" ry="17"
+                  fill={i % 2 === 0 ? "#C2185B" : "#E91E63"}
+                  transform={`rotate(${angle})`} />
+              ))}
+              <circle cx="0" cy="0" r="5" fill="#FFF176" opacity="0.9" />
+            </g>
+            {/* Right bloom */}
+            <g transform="translate(98, 35)" opacity="0.85">
+              {[0, 72, 144, 216, 288].map((angle, i) => (
+                <ellipse key={i} cx="0" cy="-11" rx="6.5" ry="12"
+                  fill={i % 2 === 0 ? "#F06292" : "#E91E63"}
+                  transform={`rotate(${angle})`} />
+              ))}
+              <circle cx="0" cy="0" r="3.5" fill="#FFEB3B" opacity="0.9" />
+            </g>
+            {/* Small bud — bottom left */}
+            <g transform="translate(38, 50)" opacity="0.7">
+              {[0, 72, 144, 216, 288].map((angle, i) => (
+                <ellipse key={i} cx="0" cy="-8" rx="5" ry="9"
+                  fill={i % 2 === 0 ? "#F48FB1" : "#F06292"}
+                  transform={`rotate(${angle})`} />
+              ))}
+              <circle cx="0" cy="0" r="3" fill="#FFF9C4" opacity="0.9" />
+            </g>
+            {/* Small bud — bottom right */}
+            <g transform="translate(80, 48)" opacity="0.75">
+              {[0, 72, 144, 216, 288].map((angle, i) => (
+                <ellipse key={i} cx="0" cy="-9" rx="5.5" ry="10"
+                  fill={i % 2 === 0 ? "#E91E63" : "#F48FB1"}
+                  transform={`rotate(${angle})`} />
+              ))}
+              <circle cx="0" cy="0" r="3" fill="#FFEB3B" opacity="0.9" />
+            </g>
+            {/* Leaves */}
+            <ellipse cx="28" cy="65" rx="14" ry="6" fill="#2E7D32" opacity="0.6" transform="rotate(-20, 28, 65)" />
+            <ellipse cx="90" cy="62" rx="13" ry="5.5" fill="#388E3C" opacity="0.5" transform="rotate(15, 90, 62)" />
+            <ellipse cx="58" cy="70" rx="16" ry="5" fill="#1B5E20" opacity="0.4" transform="rotate(-5, 58, 70)" />
+            {/* Flag pin through flowers */}
+            <rect x="58" y="25" width="2.5" height="65" rx="1.25" fill={theme.GOLD} opacity="0.7" />
+            <path d="M60.5 25 L60.5 42 L76 36 L60.5 30 Z" fill={theme.GOLD} opacity="0.6" />
+            {/* Ball */}
+            <circle cx="59.5" cy="95" r="4" fill="white" opacity="0.8" />
+            <ellipse cx="59.5" cy="100" rx="16" ry="4" fill={hexToRgba(theme.GOLD, 0.1)} />
+          </svg>
+        ) : (
+          <svg width="80" height="100" viewBox="0 0 80 100" fill="none">
+            {/* Pole */}
+            <rect x="38" y="15" width="3" height="75" rx="1.5" fill={theme.GOLD} opacity="0.9" />
+            {/* Flag */}
+            <path d="M41 15 L41 40 L65 32 L41 24 Z" fill={theme.GOLD} opacity="0.85" style={{ transformOrigin: "41px 27px", animation: "flagWave 3s ease-in-out infinite" }} />
+            {/* Ball */}
+            <circle cx="39.5" cy="92" r="5" fill="white" opacity="0.9" />
+            {/* Ground arc */}
+            <ellipse cx="39.5" cy="95" rx="20" ry="5" fill={hexToRgba(theme.GOLD, 0.15)} />
+          </svg>
+        )}
       </div>
 
-      {/* Glowing divider */}
+      {/* Glowing divider — pink for Masters */}
       <div style={{
         width: 60, height: 2, borderRadius: 1,
-        background: `linear-gradient(90deg, transparent, ${theme.GOLD}, transparent)`,
+        background: isMasters
+          ? "linear-gradient(90deg, transparent, #E91E63, #F06292, #E91E63, transparent)"
+          : `linear-gradient(90deg, transparent, ${theme.GOLD}, transparent)`,
         marginBottom: 20,
         animation: "splashPulse 2s ease-in-out infinite",
       }} />
@@ -2299,7 +2361,9 @@ function SplashScreen({ eventName }) {
       }}>
         {[0, 1, 2].map(i => (
           <div key={i} style={{
-            width: 6, height: 6, borderRadius: "50%", background: theme.GOLD, opacity: 0.5,
+            width: 6, height: 6, borderRadius: "50%",
+            background: isMasters ? "#F06292" : theme.GOLD,
+            opacity: 0.5,
             animation: `splashPulse 1.2s ease-in-out ${i * 0.2}s infinite`,
           }} />
         ))}
@@ -2309,11 +2373,12 @@ function SplashScreen({ eventName }) {
 }
 
 function Shell({ children, joinCode, onHome }) {
+  const isMastersShell = G === "#006747";
   return (
     <div style={{ fontFamily: "'Georgia','Palatino',serif", maxWidth: 680, margin: "0 auto", padding: "0 10px 50px", background: CREAM, minHeight: "100vh" }}>
       <div style={{ background: "linear-gradient(135deg," + G + "," + GD + ")", margin: "0 -10px", padding: "18px", marginBottom: 16, boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div onClick={onHome} style={{ fontSize: 32, background: "rgba(255,255,255,0.12)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", cursor: onHome ? "pointer" : "default" }}>⛳</div>
+          <div onClick={onHome} style={{ fontSize: 32, background: "rgba(255,255,255,0.12)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", cursor: onHome ? "pointer" : "default" }}>{isMastersShell ? "🌺" : "⛳"}</div>
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: GOLD, letterSpacing: 2.5 }}>PGA TOUR POOL</h1>
             <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", letterSpacing: 1 }}>Snake Draft & Live Leaderboard</p>
