@@ -1570,7 +1570,18 @@ export default function App() {
         {canPick && (
           <Card>
             <h3 style={S.sec}>Available Golfers ({available.length})</h3>
-            <input style={S.searchInput} placeholder="Search golfers..." value={search} onChange={e => setSearch(e.target.value)} />
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <input style={{ ...S.searchInput, flex: 1, marginBottom: 0 }} placeholder="Search golfers..." value={search} onChange={e => setSearch(e.target.value)} />
+              {available.length > 0 && (
+                <button style={{ ...S.smallBtn, whiteSpace: "nowrap", fontSize: 12 }}
+                  onClick={() => {
+                    const pick = available[Math.floor(Math.random() * available.length)];
+                    doPick(pick);
+                  }}>
+                  🎲 Random
+                </button>
+              )}
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, maxHeight: 350, overflowY: "auto" }}>
               {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => doPick(golfer)}>{golfer}</button>))}
             </div>
