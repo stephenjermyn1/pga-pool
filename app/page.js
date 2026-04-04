@@ -119,6 +119,7 @@ export default function App() {
 
   // --- UI state ---
   const [names, setNames] = useState(["", "", "", ""]);
+  const [randomOrder, setRandomOrder] = useState(true); // true = randomise, false = use entered order
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState(null);
   const [expanded, setExpanded] = useState(null);
@@ -652,12 +653,12 @@ export default function App() {
   }, [tournaments, players, activeTournamentId]);
 
   // ---- Create a new tournament for this pool ----
-  const createNewTournament = useCallback(async (tournamentName, importedFieldData) => {
+  const createNewTournament = useCallback(async (tournamentName, importedFieldData, customOrder) => {
     if (!poolId || !isAdmin) return;
     const tid = tournamentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30) + "-" + Date.now().toString(36);
-    const shuffled = shuffle(players);
-    const order = snake(shuffled, PICKS);
-    const p = {}; shuffled.forEach(n => p[n] = []);
+    const playerOrder = customOrder || shuffle(players);
+    const order = snake(playerOrder, PICKS);
+    const p = {}; playerOrder.forEach(n => p[n] = []);
     const tData = {
       eventName: tournamentName,
       selectedEvent: 0,
@@ -694,6 +695,8 @@ export default function App() {
   const [newTournamentName, setNewTournamentName] = useState("");
   const [newTournamentImport, setNewTournamentImport] = useState("");
   const [newTournamentStep, setNewTournamentStep] = useState("name"); // "name" | "field" | "calendar"
+  const [newTournamentRandomOrder, setNewTournamentRandomOrder] = useState(true);
+  const [newTournamentPlayerOrder, setNewTournamentPlayerOrder] = useState([]); // manual reorder
 
   const NewTournamentModal = showNewTournament ? (
     <div style={S.overlay}>
@@ -708,6 +711,53 @@ export default function App() {
             onChange={e => setNewTournamentName(e.target.value)}
             autoFocus
           />
+
+          {/* Draft order toggle */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: GD, marginBottom: 6 }}>Draft Order</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button style={{
+                flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                border: newTournamentRandomOrder ? "2px solid " + G : "2px solid #e0e0e0",
+                background: newTournamentRandomOrder ? CREAM : "white",
+                fontSize: 12, fontWeight: newTournamentRandomOrder ? 700 : 400, color: newTournamentRandomOrder ? G : "#666",
+                fontFamily: "'Georgia',serif",
+              }} onClick={() => setNewTournamentRandomOrder(true)}>
+                🎲 Random
+              </button>
+              <button style={{
+                flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                border: !newTournamentRandomOrder ? "2px solid " + G : "2px solid #e0e0e0",
+                background: !newTournamentRandomOrder ? CREAM : "white",
+                fontSize: 12, fontWeight: !newTournamentRandomOrder ? 700 : 400, color: !newTournamentRandomOrder ? G : "#666",
+                fontFamily: "'Georgia',serif",
+              }} onClick={() => { setNewTournamentRandomOrder(false); setNewTournamentPlayerOrder([...players]); }}>
+                📋 Manual
+              </button>
+            </div>
+          </div>
+
+          {/* Manual order reorder list */}
+          {!newTournamentRandomOrder && newTournamentPlayerOrder.length > 0 && (
+            <div style={{ marginBottom: 10, border: "1px solid #eee", borderRadius: 8, padding: 8 }}>
+              <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>Drag order — #1 picks first</div>
+              {newTournamentPlayerOrder.map((name, i) => (
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 4px", borderBottom: i < newTournamentPlayerOrder.length - 1 ? "1px solid #f0f0f0" : "none" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: G, minWidth: 20 }}>{i + 1}.</span>
+                  <span style={{ flex: 1, fontSize: 13, color: GD }}>{name}</span>
+                  <div style={{ display: "flex", gap: 2 }}>
+                    <button style={{ background: "none", border: "none", fontSize: 11, color: i === 0 ? "#ddd" : "#888", cursor: i === 0 ? "default" : "pointer", padding: "2px 4px" }}
+                      disabled={i === 0}
+                      onClick={() => { const u = [...newTournamentPlayerOrder]; [u[i - 1], u[i]] = [u[i], u[i - 1]]; setNewTournamentPlayerOrder(u); }}>▲</button>
+                    <button style={{ background: "none", border: "none", fontSize: 11, color: i === newTournamentPlayerOrder.length - 1 ? "#ddd" : "#888", cursor: i === newTournamentPlayerOrder.length - 1 ? "default" : "pointer", padding: "2px 4px" }}
+                      disabled={i === newTournamentPlayerOrder.length - 1}
+                      onClick={() => { const u = [...newTournamentPlayerOrder]; [u[i], u[i + 1]] = [u[i + 1], u[i]]; setNewTournamentPlayerOrder(u); }}>▼</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8 }}>
             <button style={{ ...S.primary, flex: 1 }}
               disabled={!newTournamentName.trim()}
@@ -733,7 +783,7 @@ export default function App() {
             </button>
           </div>
           <button style={{ ...S.ctrl, marginTop: 8, width: "100%" }}
-            onClick={() => { setShowNewTournament(false); setNewTournamentName(""); setNewTournamentStep("name"); }}>
+            onClick={() => { setShowNewTournament(false); setNewTournamentName(""); setNewTournamentStep("name"); setNewTournamentRandomOrder(true); }}>
             Cancel
           </button>
         </>)}
@@ -756,12 +806,14 @@ export default function App() {
                   setNewTournamentName(ev.name);
                   if (ev.hasField) {
                     // ESPN has the field — create tournament and fetch live
-                    const tid = await createNewTournament(ev.name, null);
+                    const customOrd = newTournamentRandomOrder ? null : (newTournamentPlayerOrder.length ? newTournamentPlayerOrder : null);
+                    const tid = await createNewTournament(ev.name, null, customOrd);
                     if (tid) {
                       await fetchESPN(0);
                       setShowNewTournament(false);
                       setNewTournamentName("");
                       setNewTournamentStep("name");
+                      setNewTournamentRandomOrder(true);
                     }
                   } else {
                     // No field yet — go to import step
@@ -817,11 +869,13 @@ export default function App() {
                   name, order: i + 1, scoreToPar: "—", holesPlayed: 0, status: "active",
                   rounds: [], country: "", countryFlag: "", athleteId: null, roundsCompleted: 0,
                 }));
-                await createNewTournament(newTournamentName.trim(), field);
+                const customOrd = newTournamentRandomOrder ? null : (newTournamentPlayerOrder.length ? newTournamentPlayerOrder : null);
+                await createNewTournament(newTournamentName.trim(), field, customOrd);
                 setShowNewTournament(false);
                 setNewTournamentName("");
                 setNewTournamentImport("");
                 setNewTournamentStep("name");
+                setNewTournamentRandomOrder(true);
               }}>
               Create Tournament ({newTournamentImport.split("\n").filter(l => l.trim()).length} golfers)
             </button>
@@ -829,11 +883,13 @@ export default function App() {
               disabled={!newTournamentName.trim()}
               onClick={async () => {
                 // Create with no field — can fetch/import later
-                await createNewTournament(newTournamentName.trim(), null);
+                const customOrd = newTournamentRandomOrder ? null : (newTournamentPlayerOrder.length ? newTournamentPlayerOrder : null);
+                await createNewTournament(newTournamentName.trim(), null, customOrd);
                 setShowNewTournament(false);
                 setNewTournamentName("");
                 setNewTournamentImport("");
                 setNewTournamentStep("name");
+                setNewTournamentRandomOrder(true);
               }}>
               Skip Import
             </button>
@@ -1039,30 +1095,65 @@ export default function App() {
       <Card>
         <button style={{ ...S.ctrl, marginBottom: 10 }} onClick={() => setScreen("home")}>← Back</button>
         <h2 style={S.title}>Set Up Your Pool</h2>
-        <p style={S.sub}>Enter everyone's name. Draft order will be randomised.</p>
+        <p style={S.sub}>Enter everyone's name, then choose draft order below.</p>
         {names.map((n, i) => (
-          <div key={i} style={S.row}>
+          <div key={i} style={{ ...S.row, gap: 4 }}>
             <span style={S.rowNum}>{i + 1}.</span>
+            {!randomOrder && names.filter(x => x.trim()).length > 1 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, marginRight: 2 }}>
+                <button style={{ background: "none", border: "none", fontSize: 10, color: i === 0 ? "#ddd" : "#888", cursor: i === 0 ? "default" : "pointer", padding: "0 2px", lineHeight: 1 }}
+                  disabled={i === 0}
+                  onClick={() => { const u = [...names]; [u[i - 1], u[i]] = [u[i], u[i - 1]]; setNames(u); }}>▲</button>
+                <button style={{ background: "none", border: "none", fontSize: 10, color: i === names.length - 1 ? "#ddd" : "#888", cursor: i === names.length - 1 ? "default" : "pointer", padding: "0 2px", lineHeight: 1 }}
+                  disabled={i === names.length - 1}
+                  onClick={() => { const u = [...names]; [u[i], u[i + 1]] = [u[i + 1], u[i]]; setNames(u); }}>▼</button>
+              </div>
+            )}
             <input style={S.input} placeholder="Name..." value={n}
               onChange={e => { const u = [...names]; u[i] = e.target.value; setNames(u); }} />
             {names.length > 2 && <button style={S.xBtn} onClick={() => setNames(names.filter((_, j) => j !== i))}>✕</button>}
           </div>
         ))}
         {names.length < 14 && <button style={S.dashed} onClick={() => setNames([...names, ""])}>+ Add Player</button>}
-        <button style={{ ...S.primary, marginTop: 20, opacity: names.filter(n => n.trim()).length >= 2 ? 1 : 0.4 }}
+
+        {/* Draft order toggle */}
+        <div style={{ margin: "16px 0 4px", display: "flex", gap: 8 }}>
+          <button style={{
+            flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+            border: randomOrder ? "2px solid " + G : "2px solid #e0e0e0",
+            background: randomOrder ? CREAM : "white",
+            fontSize: 13, fontWeight: randomOrder ? 700 : 400, color: randomOrder ? G : "#666",
+            fontFamily: "'Georgia',serif",
+          }} onClick={() => setRandomOrder(true)}>
+            🎲 Random Order
+          </button>
+          <button style={{
+            flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+            border: !randomOrder ? "2px solid " + G : "2px solid #e0e0e0",
+            background: !randomOrder ? CREAM : "white",
+            fontSize: 13, fontWeight: !randomOrder ? 700 : 400, color: !randomOrder ? G : "#666",
+            fontFamily: "'Georgia',serif",
+          }} onClick={() => setRandomOrder(false)}>
+            📋 Manual Order
+          </button>
+        </div>
+        {!randomOrder && <p style={{ fontSize: 11, color: "#888", margin: "4px 0 0" }}>Use ▲▼ arrows to reorder. Player #1 picks first.</p>}
+
+        <button style={{ ...S.primary, marginTop: 16, opacity: names.filter(n => n.trim()).length >= 2 ? 1 : 0.4 }}
           disabled={names.filter(n => n.trim()).length < 2}
           onClick={async () => {
             const valid = names.filter(n => n.trim()).map(n => n.trim());
-            const shuffled = shuffle(valid);
-            const claimsInit = {}; shuffled.forEach(n => claimsInit[n] = null);
+            const ordered = randomOrder ? shuffle(valid) : valid;
+            const claimsInit = {}; ordered.forEach(n => claimsInit[n] = null);
 
             // Create pool in Firebase with multi-tournament structure
             // No tournament created yet — admin will add tournaments via "New Tournament"
             const result = await createPool(uid, {
-              players: shuffled,
+              players: ordered,
               claims: claimsInit,
               tournaments: {},
               activeTournamentId: null,
+              draftOrderMode: randomOrder ? "random" : "manual",
             });
 
             if (!result) {
