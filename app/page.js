@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer, savePhoto } from "../lib/firebase";
+import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer, savePhoto, saveTournament, updateTournament } from "../lib/firebase";
 
 // --- Dynamic Tournament Theming ---
 let G, GD, GOLD, CREAM, BOARD_GREEN, BOARD_DARK;
@@ -139,6 +139,10 @@ export default function App() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [editingPicks, setEditingPicks] = useState(null); // { player, pickIdx } or null
   const [editSearch, setEditSearch] = useState("");
+  const [tournaments, setTournaments] = useState({});           // all tournaments keyed by id
+  const [activeTournamentId, setActiveTournamentId] = useState(null); // which tournament is "live" for ESPN
+  const [viewingTournamentId, setViewingTournamentId] = useState(null); // which tournament user is looking at
+  const [showNewTournament, setShowNewTournament] = useState(false);
   const [joinInput, setJoinInput] = useState("");
   const [joinErr, setJoinErr] = useState("");
   const [showSplash, setShowSplash] = useState(false);
@@ -269,10 +273,20 @@ export default function App() {
     localStorage.setItem("pga-pool-id", pid);
     if (claimedName) localStorage.setItem("pga-pool-name", claimedName);
 
-    // Decide which screen
+    // Decide which screen — check tournament-level draftDone
+    const hasTournaments = data.tournaments && Object.keys(data.tournaments).length > 0;
+    const activeT = hasTournaments
+      ? data.tournaments[data.activeTournamentId || Object.keys(data.tournaments)[0]]
+      : data;
+    const activeDraftDone = activeT?.draftDone || false;
+    const hasNoTournaments = data.tournaments && Object.keys(data.tournaments).length === 0;
+
     if (!claimedName) {
       setScreen("join");
-    } else if (data.draftDone) {
+    } else if (hasNoTournaments) {
+      // Pool exists but no tournaments — go to join/home screen to create one
+      setScreen("join");
+    } else if (activeDraftDone) {
       setScreen("leaderboard");
     } else if (data.players?.length > 0) {
       setScreen("draft");
@@ -309,7 +323,8 @@ export default function App() {
         }
         prevPickIdxRef.current = newPickIdx;
 
-        applyPoolData(snap);
+        // Preserve current viewing tournament when applying real-time updates
+        applyPoolData(snap, undefined);
         setClaims(snap.claims || {});
         setPhotos(snap.photos || {});
         setAdminUid(snap.adminUid || null);
@@ -318,9 +333,52 @@ export default function App() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function applyPoolData(data) {
+  function applyPoolData(data, overrideViewingId) {
     const p = data.players || [];
-    let order = data.draftOrder || [];
+    setPlayers(p);
+
+    // --- Multi-tournament detection ---
+    if (data.tournaments && Object.keys(data.tournaments).length > 0) {
+      // New format: pool has tournaments sub-object
+      const allT = data.tournaments;
+      setTournaments(allT);
+      const activeId = data.activeTournamentId || Object.keys(allT)[0];
+      setActiveTournamentId(activeId);
+      // Determine which tournament to view
+      let resolvedViewId = overrideViewingId || activeId;
+      setViewingTournamentId(prev => {
+        const id = overrideViewingId || prev || activeId;
+        resolvedViewId = allT[id] ? id : activeId;
+        return resolvedViewId;
+      });
+      // Apply the viewed tournament's data
+      const t = allT[resolvedViewId] || allT[activeId] || {};
+      applyTournamentData(t, p);
+      // If the viewed tournament has a persisted imported field, load it
+      if (t.importedField) {
+        setEspnField(t.importedField);
+      }
+    } else {
+      // Old format: flat pool data — synthesize a single tournament
+      const legacyId = data._legacyTournamentId || "legacy";
+      const legacyT = {
+        eventName: data.eventName || "",
+        selectedEvent: data.selectedEvent || 0,
+        draftOrder: data.draftOrder || [],
+        pickIdx: data.pickIdx || 0,
+        picks: data.picks || {},
+        draftDone: data.draftDone || false,
+        status: "active",
+      };
+      setTournaments({ [legacyId]: legacyT });
+      setActiveTournamentId(legacyId);
+      setViewingTournamentId(legacyId);
+      applyTournamentData(legacyT, p);
+    }
+  }
+
+  function applyTournamentData(t, p) {
+    let order = t.draftOrder || [];
     // Auto-extend draft order if PICKS increased (e.g. 5→6 rounds)
     const expectedLen = p.length * PICKS;
     if (p.length > 0 && order.length > 0 && order.length < expectedLen) {
@@ -331,27 +389,41 @@ export default function App() {
       }
       order = [...order, ...extraRounds];
     }
-    setPlayers(p);
     setDraftOrder(order);
-    setPickIdx(data.pickIdx || 0);
-    setPicks(data.picks || {});
+    setPickIdx(t.pickIdx || 0);
+    setPicks(t.picks || {});
     // Only mark done if we've actually completed all PICKS rounds
-    const shouldBeDone = (data.pickIdx || 0) >= expectedLen;
-    setDraftDone(p.length > 0 ? shouldBeDone : (data.draftDone || false));
-    setEventName(data.eventName || "");
-    setSelectedEvent(data.selectedEvent || 0);
+    const shouldBeDone = (t.pickIdx || 0) >= expectedLen;
+    setDraftDone(p.length > 0 ? shouldBeDone : (t.draftDone || false));
+    setEventName(t.eventName || "");
+    setSelectedEvent(t.selectedEvent || 0);
   }
 
   // ---- Save state changes ----
   const saveState = useCallback((overrides = {}) => {
     if (!poolId) return;
-    const state = {
-      players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent,
-      joinCode, adminUid, claims,
-      ...overrides,
-    };
-    savePool(poolId, state);
-  }, [poolId, players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent, joinCode, adminUid, claims]);
+    const tid = viewingTournamentId;
+    if (tid && tid !== "legacy") {
+      // New multi-tournament format: save tournament-specific data
+      const tData = {
+        eventName, selectedEvent, draftOrder, pickIdx, picks, draftDone,
+        ...overrides,
+      };
+      // Remove non-tournament keys that might be in overrides
+      delete tData.players; delete tData.joinCode; delete tData.adminUid; delete tData.claims;
+      saveTournament(poolId, tid, tData);
+      // Also keep the tournaments map in sync locally
+      setTournaments(prev => ({ ...prev, [tid]: { ...prev[tid], ...tData } }));
+    } else {
+      // Legacy format: save flat
+      const state = {
+        players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent,
+        joinCode, adminUid, claims,
+        ...overrides,
+      };
+      savePool(poolId, state);
+    }
+  }, [poolId, viewingTournamentId, players, draftOrder, pickIdx, picks, draftDone, eventName, selectedEvent, joinCode, adminUid, claims]);
 
   // ---- Fetch ESPN ----
   const fetchESPN = useCallback(async (evIdx) => {
@@ -390,9 +462,11 @@ export default function App() {
     }
   }, [selectedEvent, notify]);
 
-  // Auto-fetch on leaderboard
+  // Auto-fetch on leaderboard (only for active tournament)
   useEffect(() => {
-    if (screen === "leaderboard") fetchESPN(selectedEvent);
+    if (screen === "leaderboard" && (!viewingTournamentId || viewingTournamentId === activeTournamentId || viewingTournamentId === "legacy")) {
+      fetchESPN(selectedEvent);
+    }
   }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Pool Leaderboard ----
@@ -481,12 +555,20 @@ export default function App() {
       await fetchESPN(0);
       if (event.name) {
         setEventName(event.name);
-        if (poolId) updatePool(poolId, { eventName: event.name });
+        if (poolId && viewingTournamentId && viewingTournamentId !== "legacy") {
+          updateTournament(poolId, viewingTournamentId, { eventName: event.name });
+        } else if (poolId) {
+          updatePool(poolId, { eventName: event.name });
+        }
       }
     } else {
       // No field yet — set event name and open import
       setEventName(event.name);
-      if (poolId) updatePool(poolId, { eventName: event.name });
+      if (poolId && viewingTournamentId && viewingTournamentId !== "legacy") {
+        updateTournament(poolId, viewingTournamentId, { eventName: event.name });
+      } else if (poolId) {
+        updatePool(poolId, { eventName: event.name });
+      }
       setShowImportField(true);
       notify(`${event.name} — no ESPN field yet, import one manually`);
     }
@@ -527,6 +609,10 @@ export default function App() {
     setEspnField(field);
     setShowImportField(false);
     setImportText("");
+    // Persist imported field to Firebase so other users see it
+    if (poolId && viewingTournamentId && viewingTournamentId !== "legacy") {
+      updateTournament(poolId, viewingTournamentId, { importedField: field });
+    }
     notify(`Imported ${field.length} golfers`);
   };
 
@@ -538,10 +624,228 @@ export default function App() {
     setPicks({}); setDraftDone(false); setEspnField([]); setEventName("");
     setNames(["", "", "", ""]); setMyName(null); setJoinCode("");
     setClaims({}); setPhotos({}); setAdminUid(null); setIsAdmin(false);
+    setTournaments({}); setActiveTournamentId(null); setViewingTournamentId(null);
     // Clear URL params if present
     if (window.location.search) window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
   };
+
+  // ---- Switch between tournaments ----
+  const switchTournament = useCallback((tid) => {
+    if (!tid || !tournaments[tid]) return;
+    setViewingTournamentId(tid);
+    const t = tournaments[tid];
+    applyTournamentData(t, players);
+    // Load the tournament's imported field if it exists, otherwise clear
+    if (t.importedField) {
+      setEspnField(t.importedField);
+    } else {
+      setEspnField([]);
+    }
+    // Go to the appropriate screen
+    if (t.draftDone) {
+      // If this is the active tournament, go to leaderboard; otherwise show draft complete
+      setScreen(tid === activeTournamentId ? "leaderboard" : "draft");
+    } else {
+      setScreen("draft");
+    }
+  }, [tournaments, players, activeTournamentId]);
+
+  // ---- Create a new tournament for this pool ----
+  const createNewTournament = useCallback(async (tournamentName, importedFieldData) => {
+    if (!poolId || !isAdmin) return;
+    const tid = tournamentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30) + "-" + Date.now().toString(36);
+    const shuffled = shuffle(players);
+    const order = snake(shuffled, PICKS);
+    const p = {}; shuffled.forEach(n => p[n] = []);
+    const tData = {
+      eventName: tournamentName,
+      selectedEvent: 0,
+      draftOrder: order,
+      pickIdx: 0,
+      picks: p,
+      draftDone: false,
+      status: "upcoming",
+      createdAt: Date.now(),
+    };
+    if (importedFieldData && importedFieldData.length > 0) {
+      tData.importedField = importedFieldData;
+    }
+    // Save to Firebase
+    await saveTournament(poolId, tid, tData);
+    // Set as active tournament
+    await updatePool(poolId, { activeTournamentId: tid });
+    // Update local state
+    setTournaments(prev => ({ ...prev, [tid]: tData }));
+    setActiveTournamentId(tid);
+    setViewingTournamentId(tid);
+    applyTournamentData(tData, players);
+    if (importedFieldData && importedFieldData.length > 0) {
+      setEspnField(importedFieldData);
+    } else {
+      setEspnField([]);
+    }
+    setScreen("draft");
+    notify(`Created tournament: ${tournamentName}`);
+    return tid;
+  }, [poolId, isAdmin, players, notify]);
+
+  // ---- New Tournament Modal ----
+  const [newTournamentName, setNewTournamentName] = useState("");
+  const [newTournamentImport, setNewTournamentImport] = useState("");
+  const [newTournamentStep, setNewTournamentStep] = useState("name"); // "name" | "field" | "calendar"
+
+  const NewTournamentModal = showNewTournament ? (
+    <div style={S.overlay}>
+      <div style={{ ...S.modal, maxWidth: 480 }}>
+        {newTournamentStep === "name" && (<>
+          <h3 style={S.title}>New Tournament</h3>
+          <p style={S.sub}>Set up a new draft for an upcoming tournament.</p>
+          <input
+            style={{ ...S.input, marginBottom: 12 }}
+            placeholder="Tournament name (e.g. The Masters)"
+            value={newTournamentName}
+            onChange={e => setNewTournamentName(e.target.value)}
+            autoFocus
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...S.primary, flex: 1 }}
+              disabled={!newTournamentName.trim()}
+              onClick={() => setNewTournamentStep("field")}>
+              Next
+            </button>
+            <button style={{ ...S.ctrl, flex: 1 }}
+              onClick={async () => {
+                // Try to fetch calendar for easy selection
+                setCalendarLoading(true);
+                try {
+                  const resp = await fetch("/api/espn/calendar");
+                  if (!resp.ok) throw new Error();
+                  const data = await resp.json();
+                  setCalendarEvents(data.upcoming || []);
+                  setNewTournamentStep("calendar");
+                } catch (e) {
+                  notify("Couldn't load calendar");
+                }
+                setCalendarLoading(false);
+              }}>
+              {calendarLoading ? "Loading..." : "Browse Upcoming"}
+            </button>
+          </div>
+          <button style={{ ...S.ctrl, marginTop: 8, width: "100%" }}
+            onClick={() => { setShowNewTournament(false); setNewTournamentName(""); setNewTournamentStep("name"); }}>
+            Cancel
+          </button>
+        </>)}
+
+        {newTournamentStep === "calendar" && (<>
+          <h3 style={S.title}>Upcoming Tournaments</h3>
+          <p style={S.sub}>Select a tournament from the ESPN calendar.</p>
+          <div style={{ maxHeight: 400, overflowY: "auto" }}>
+            {calendarEvents.map(ev => {
+              const start = new Date(ev.startDate);
+              const dateStr = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              return (
+                <button key={ev.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  width: "100%", padding: "12px 14px", marginBottom: 6,
+                  borderRadius: 10, cursor: "pointer",
+                  border: "2px solid #e8e8e8", background: "white",
+                  fontFamily: "'Georgia',serif", fontSize: 14, textAlign: "left",
+                }} onClick={async () => {
+                  setNewTournamentName(ev.name);
+                  if (ev.hasField) {
+                    // ESPN has the field — create tournament and fetch live
+                    const tid = await createNewTournament(ev.name, null);
+                    if (tid) {
+                      await fetchESPN(0);
+                      setShowNewTournament(false);
+                      setNewTournamentName("");
+                      setNewTournamentStep("name");
+                    }
+                  } else {
+                    // No field yet — go to import step
+                    setNewTournamentStep("field");
+                  }
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: GD }}>{ev.name}</div>
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{dateStr}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: ev.hasField ? G : "#999", fontWeight: 600 }}>
+                    {ev.hasField ? "Field ready" : "Import needed"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button style={{ ...S.ctrl, flex: 1 }} onClick={() => setNewTournamentStep("name")}>← Back</button>
+            <button style={{ ...S.ctrl, flex: 1 }} onClick={() => { setShowNewTournament(false); setNewTournamentName(""); setNewTournamentStep("name"); }}>Cancel</button>
+          </div>
+        </>)}
+
+        {newTournamentStep === "field" && (<>
+          <h3 style={S.title}>{newTournamentName || "Import Field"}</h3>
+          <p style={S.sub}>Paste golfer names, one per line. Supports "Lastname, Firstname" format.</p>
+          <textarea
+            value={newTournamentImport}
+            onChange={e => setNewTournamentImport(e.target.value)}
+            placeholder={"Scheffler, Scottie\nMcIlroy, Rory\nRahm, Jon\n..."}
+            style={{ width: "100%", minHeight: 200, padding: 10, borderRadius: 8, border: "1px solid #ddd", fontSize: 13, fontFamily: "'Georgia',serif", resize: "vertical", boxSizing: "border-box" }}
+          />
+          <div style={{ fontSize: 12, color: "#888", margin: "6px 0" }}>
+            {newTournamentImport.split("\n").filter(l => l.trim()).length} golfers detected
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...S.primary, flex: 2 }}
+              disabled={newTournamentImport.split("\n").filter(l => l.trim()).length < 2 || !newTournamentName.trim()}
+              onClick={async () => {
+                // Parse the field
+                const lines = newTournamentImport.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+                const golfers = lines.map(line => {
+                  if (line.includes(",")) {
+                    const [last, first] = line.split(",").map(s => s.trim());
+                    if (first && last) {
+                      const fixCase = (s) => s === s.toUpperCase() && s.length > 2 ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+                      return `${first} ${fixCase(last)}`;
+                    }
+                  }
+                  return line;
+                });
+                const field = golfers.map((name, i) => ({
+                  name, order: i + 1, scoreToPar: "—", holesPlayed: 0, status: "active",
+                  rounds: [], country: "", countryFlag: "", athleteId: null, roundsCompleted: 0,
+                }));
+                await createNewTournament(newTournamentName.trim(), field);
+                setShowNewTournament(false);
+                setNewTournamentName("");
+                setNewTournamentImport("");
+                setNewTournamentStep("name");
+              }}>
+              Create Tournament ({newTournamentImport.split("\n").filter(l => l.trim()).length} golfers)
+            </button>
+            <button style={{ ...S.ctrl, flex: 1 }}
+              disabled={!newTournamentName.trim()}
+              onClick={async () => {
+                // Create with no field — can fetch/import later
+                await createNewTournament(newTournamentName.trim(), null);
+                setShowNewTournament(false);
+                setNewTournamentName("");
+                setNewTournamentImport("");
+                setNewTournamentStep("name");
+              }}>
+              Skip Import
+            </button>
+          </div>
+          <button style={{ ...S.ctrl, marginTop: 8, width: "100%" }}
+            onClick={() => setNewTournamentStep(calendarEvents.length > 0 ? "calendar" : "name")}>
+            ← Back
+          </button>
+        </>)}
+      </div>
+    </div>
+  ) : null;
 
   // ---- Event Picker ----
   const EventPicker = showEventPicker ? (
@@ -750,20 +1054,15 @@ export default function App() {
           onClick={async () => {
             const valid = names.filter(n => n.trim()).map(n => n.trim());
             const shuffled = shuffle(valid);
-            const order = snake(shuffled, PICKS);
-            const p = {}; shuffled.forEach(n => p[n] = []);
             const claimsInit = {}; shuffled.forEach(n => claimsInit[n] = null);
 
-            // Create pool in Firebase
+            // Create pool in Firebase with multi-tournament structure
+            // No tournament created yet — admin will add tournaments via "New Tournament"
             const result = await createPool(uid, {
               players: shuffled,
-              draftOrder: order,
-              pickIdx: 0,
-              picks: p,
-              draftDone: false,
-              eventName: "",
-              selectedEvent: 0,
               claims: claimsInit,
+              tournaments: {},
+              activeTournamentId: null,
             });
 
             if (!result) {
@@ -885,26 +1184,129 @@ export default function App() {
               </Card>
             )}
 
-            <button style={{ ...S.primary, marginTop: 12 }}
-              onClick={async () => {
-                const result = await fetchESPN(null);
-                if (result || espnField.length > 0) {
-                  if (result?.eventName) {
-                    await updatePool(poolId, { eventName: result.eventName, selectedEvent: selectedEvent });
+            {/* Show tournament selector if we have tournaments */}
+            {Object.keys(tournaments).length > 0 && (
+              <Card>
+                <h3 style={{ margin: "0 0 8px", fontSize: 14, color: GD }}>Tournaments</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {Object.entries(tournaments).sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0)).map(([tid, t]) => (
+                    <button key={tid} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "10px 14px", borderRadius: 8, cursor: "pointer",
+                      border: tid === activeTournamentId ? "2px solid " + G : "1px solid #e0e0e0",
+                      background: tid === activeTournamentId ? CREAM : "white",
+                      fontFamily: "'Georgia',serif", fontSize: 13, textAlign: "left",
+                    }} onClick={() => {
+                      switchTournament(tid);
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: GD }}>{t.eventName || "Untitled"}</div>
+                        <div style={{ fontSize: 11, color: "#888" }}>{t.draftDone ? "Draft complete" : "Drafting..."}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: tid === activeTournamentId ? G : "#999", fontWeight: 600 }}>
+                        {tid === activeTournamentId ? "Active" : ""}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {isAdmin && (
+                  <button style={{ ...S.dashed, marginTop: 8 }} onClick={() => setShowNewTournament(true)}>
+                    + New Tournament
+                  </button>
+                )}
+              </Card>
+            )}
+
+            {/* If no tournaments yet, prompt admin to create one */}
+            {Object.keys(tournaments).length === 0 && isAdmin && (
+              <Card>
+                <h3 style={{ margin: "0 0 6px", fontSize: 14, color: GD }}>Get Started</h3>
+                <p style={{ margin: "0 0 10px", fontSize: 12, color: "#888" }}>Create your first tournament to start drafting.</p>
+                <button style={S.primary} onClick={() => setShowNewTournament(true)}>
+                  + New Tournament
+                </button>
+              </Card>
+            )}
+
+            {Object.keys(tournaments).length === 0 && !isAdmin && (
+              <Card>
+                <p style={{ margin: 0, fontSize: 13, color: "#888", textAlign: "center" }}>Waiting for the admin to create a tournament...</p>
+              </Card>
+            )}
+
+            {Object.keys(tournaments).length > 0 && (
+              <button style={{ ...S.primary, marginTop: 12 }}
+                onClick={async () => {
+                  if (viewingTournamentId && tournaments[viewingTournamentId]) {
+                    const t = tournaments[viewingTournamentId];
+                    if (t.draftDone) {
+                      if (viewingTournamentId === activeTournamentId) {
+                        const result = await fetchESPN(null);
+                        if (result?.eventName && viewingTournamentId !== "legacy") {
+                          await updateTournament(poolId, viewingTournamentId, { eventName: result.eventName });
+                        }
+                      }
+                      setScreen("leaderboard");
+                    } else {
+                      setScreen("draft");
+                    }
+                  } else {
+                    const result = await fetchESPN(null);
+                    if (result || espnField.length > 0) {
+                      setScreen(draftDone ? "leaderboard" : "draft");
+                    } else if (!showEventPicker) {
+                      setScreen(draftDone ? "leaderboard" : "draft");
+                    }
                   }
-                  setScreen(draftDone ? "leaderboard" : "draft");
-                } else if (!showEventPicker) {
-                  setScreen(draftDone ? "leaderboard" : "draft");
-                }
-              }}>
-              {draftDone ? "Go to Leaderboard" : "Continue to Draft"}
-            </button>
+                }}>
+                {draftDone ? "Go to Leaderboard" : "Continue to Draft"}
+              </button>
+            )}
           </>
         )}
       </Card>
-      {EventPicker}<Toast msg={toast} />
+      {EventPicker}
+      {showNewTournament && <NewTournamentModal />}
+      <Toast msg={toast} />
     </Shell>
   );
+
+  // ---- Tournament Nav Bar (shown on draft + leaderboard) ----
+  const tournamentIds = Object.keys(tournaments);
+  const TournamentNav = tournamentIds.length > 1 || (tournamentIds.length === 1 && isAdmin) ? (
+    <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 4, alignItems: "center" }}>
+      {Object.entries(tournaments)
+        .sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0))
+        .map(([tid, t]) => {
+          const isViewing = tid === viewingTournamentId;
+          const isActive = tid === activeTournamentId;
+          return (
+            <button key={tid} style={{
+              padding: "6px 12px", borderRadius: 20, cursor: "pointer", whiteSpace: "nowrap",
+              border: isViewing ? "2px solid " + G : "1px solid #ddd",
+              background: isViewing ? G : "white",
+              color: isViewing ? "white" : GD,
+              fontSize: 12, fontWeight: isViewing ? 700 : 400,
+              fontFamily: "'Georgia',serif",
+              display: "flex", alignItems: "center", gap: 4,
+            }} onClick={() => switchTournament(tid)}>
+              {isActive && <span style={{ fontSize: 8 }}>●</span>}
+              {t.eventName || "Untitled"}
+              {t.draftDone ? "" : " 🔄"}
+            </button>
+          );
+        })}
+      {isAdmin && (
+        <button style={{
+          padding: "6px 12px", borderRadius: 20, cursor: "pointer", whiteSpace: "nowrap",
+          border: "2px dashed " + G, background: "transparent", color: G,
+          fontSize: 12, fontWeight: 600, fontFamily: "'Georgia',serif",
+        }} onClick={() => setShowNewTournament(true)}>
+          + New
+        </button>
+      )}
+    </div>
+  ) : null;
 
   // ---- DRAFT ----
   if (screen === "draft") {
@@ -963,9 +1365,20 @@ export default function App() {
 
     if (draftDone) return (
       <Shell joinCode={joinCode} onHome={leavePool}>
+        {TournamentNav}
         <Card>
           <h2 style={{ ...S.title, color: G, textAlign: "center" }}>Draft Complete!</h2>
           <p style={{ ...S.sub, textAlign: "center", fontWeight: 600 }}>{eventName}</p>
+          {viewingTournamentId && viewingTournamentId !== activeTournamentId && isAdmin && (
+            <button style={{ ...S.smallBtn, width: "100%", marginBottom: 10, background: GOLD, color: GD }}
+              onClick={async () => {
+                await updatePool(poolId, { activeTournamentId: viewingTournamentId });
+                setActiveTournamentId(viewingTournamentId);
+                notify("Set as active tournament");
+              }}>
+              Set as Active Tournament
+            </button>
+          )}
           {players.map(p => (
             <div key={p} style={S.teamCard}>
               <div style={S.teamName}>{p} {claims[p] === uid && <span style={{ fontSize: 11, color: GOLD }}>(You)</span>}</div>
@@ -977,15 +1390,29 @@ export default function App() {
               ))}
             </div>
           ))}
-          <button style={S.primary} onClick={() => setScreen("leaderboard")}>Go to Leaderboard</button>
+          <button style={S.primary} onClick={() => {
+            if (viewingTournamentId === activeTournamentId) {
+              setScreen("leaderboard");
+            } else {
+              // Switch to active tournament's leaderboard
+              if (activeTournamentId && tournaments[activeTournamentId]) {
+                switchTournament(activeTournamentId);
+                setScreen("leaderboard");
+              } else {
+                setScreen("leaderboard");
+              }
+            }
+          }}>Go to Leaderboard</button>
         </Card>
         {EditPicksModal}
+        {showNewTournament && NewTournamentModal}
         {EventPicker}<Toast msg={toast} />
       </Shell>
     );
 
     return (
       <Shell joinCode={joinCode} onHome={leavePool}>
+        {TournamentNav}
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={S.badge}>Round {round}/{PICKS}</span>
@@ -1136,6 +1563,7 @@ export default function App() {
             </div>
           </div>
         )}
+        {showNewTournament && NewTournamentModal}
         <Toast msg={toast} />
       </Shell>
     );
@@ -1144,6 +1572,7 @@ export default function App() {
   // ---- LEADERBOARD ----
   if (screen === "leaderboard") return (
     <Shell joinCode={joinCode} onHome={leavePool}>
+      {TournamentNav}
       <div style={S.eventBanner}>
         <div style={{ fontSize: 11, letterSpacing: 2, color: GOLD, fontWeight: 700 }}>
           {tournamentDone ? "FINAL" : espnField.some(f => f.holesPlayed > 0) ? "LIVE" : "LEADERBOARD"}
@@ -1151,6 +1580,16 @@ export default function App() {
         <div style={{ fontSize: 20, fontWeight: 700, color: "white" }}>{eventName}</div>
         {eventDetail && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 }}>{eventDetail}</div>}
       </div>
+      {viewingTournamentId && viewingTournamentId !== activeTournamentId && isAdmin && (
+        <button style={{ ...S.smallBtn, width: "100%", marginBottom: 10, background: GOLD, color: GD }}
+          onClick={async () => {
+            await updatePool(poolId, { activeTournamentId: viewingTournamentId });
+            setActiveTournamentId(viewingTournamentId);
+            notify("Set as active tournament — refresh to load live scores");
+          }}>
+          Set as Active Tournament
+        </button>
+      )}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <button style={{ ...S.ctrl, opacity: isLoading ? 0.5 : 1 }} onClick={() => fetchESPN(selectedEvent)} disabled={isLoading}>
           {isLoading ? "..." : "Refresh"}
@@ -1294,7 +1733,7 @@ export default function App() {
                       );
                     })}
                     <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 6, marginTop: 4, fontSize: 11, color: "rgba(255,255,255,0.5)", textAlign: "center" }}>
-                      Best 3 = <strong style={{ color: e.combinedPar - (e.hasWinner ? WINNER_BONUS : 0) < 0 ? BOARD_RED : BOARD_YELLOW }}>{fmtPar(e.combinedPar - (e.hasWinner ? WINNER_BONUS : 0))}</strong>
+                      Best {BEST_OF} = <strong style={{ color: e.combinedPar - (e.hasWinner ? WINNER_BONUS : 0) < 0 ? BOARD_RED : BOARD_YELLOW }}>{fmtPar(e.combinedPar - (e.hasWinner ? WINNER_BONUS : 0))}</strong>
                       {e.hasWinner && <span style={{ color: BOARD_YELLOW }}> + bonus (−10) = <strong>{fmtPar(e.combinedPar)}</strong></span>}
                     </div>
                   </div>
@@ -1305,7 +1744,9 @@ export default function App() {
           {poolLB.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "rgba(255,255,255,0.4)" }}>Complete the draft, then refresh scores.</div>}
         </div>
       </>)}
-      {EventPicker}<Toast msg={toast} />
+      {EventPicker}
+      {showNewTournament && NewTournamentModal}
+      <Toast msg={toast} />
     </Shell>
   );
 
