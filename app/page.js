@@ -139,6 +139,7 @@ export default function App() {
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [editingPicks, setEditingPicks] = useState(null); // { player, pickIdx } or null
+  const [pendingPick, setPendingPick] = useState(null); // golfer name awaiting confirmation
   const [editSearch, setEditSearch] = useState("");
   const [tournaments, setTournaments] = useState({});           // all tournaments keyed by id
   const [activeTournamentId, setActiveTournamentId] = useState(null); // which tournament is "live" for ESPN
@@ -1576,14 +1577,14 @@ export default function App() {
                 <button style={{ ...S.smallBtn, whiteSpace: "nowrap", fontSize: 12 }}
                   onClick={() => {
                     const pick = available[Math.floor(Math.random() * available.length)];
-                    doPick(pick);
+                    setPendingPick(pick);
                   }}>
                   🎲 Random
                 </button>
               )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, maxHeight: 350, overflowY: "auto" }}>
-              {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => doPick(golfer)}>{golfer}</button>))}
+              {filtered.map(golfer => (<button key={golfer} style={S.golferBtn} onClick={() => setPendingPick(golfer)}>{golfer}</button>))}
             </div>
             {espnField.length === 0 && (
               <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -1676,6 +1677,26 @@ export default function App() {
           </div>
         )}
         {showNewTournament && NewTournamentModal}
+        {pendingPick && (
+          <div style={S.overlay}>
+            <div style={{ ...S.modal, textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>⛳</div>
+              <h3 style={{ ...S.title, marginBottom: 4 }}>Confirm Pick</h3>
+              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#888" }}>{drafter} is drafting:</p>
+              <p style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 700, color: GD }}>{pendingPick}</p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button style={{ ...S.primary, flex: 1 }}
+                  onClick={() => { doPick(pendingPick); setPendingPick(null); }}>
+                  Confirm
+                </button>
+                <button style={{ ...S.ctrl, flex: 1 }}
+                  onClick={() => setPendingPick(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <Toast msg={toast} />
       </Shell>
     );
