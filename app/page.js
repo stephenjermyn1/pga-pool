@@ -1102,7 +1102,7 @@ export default function App() {
                   {kalshiData?.available === false ? "Market data not available for this tournament" : "No odds found for this golfer"}
                 </div>
               )}
-              <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 8 }}>Source: Kalshi prediction markets</div>
+              <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 8 }}>Source: {kalshiData?.source === "espn" ? "ESPN / sportsbook odds" : "Kalshi prediction markets"}</div>
             </Card>
           );
         })()}
@@ -1960,7 +1960,7 @@ export default function App() {
                 </div>
 
                 <div style={{ fontSize: 10, color: "#bbb", textAlign: "center" }}>
-                  Probabilities from Kalshi prediction markets. Tap a golfer name for full odds.
+                  Implied probabilities from {kalshiData?.source === "espn" ? "ESPN / sportsbook" : "Kalshi"} odds. Tap a golfer for full breakdown.
                 </div>
               </>
             );
