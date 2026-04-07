@@ -132,6 +132,9 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [showFullLB, setShowFullLB] = useState(false);
   const [golferDetail, setGolferDetail] = useState(null);
+  const [kalshiData, setKalshiData] = useState(null); // { available, golfers: { norm_name: { name, cut, top20, ... } } }
+  const [kalshiLoading, setKalshiLoading] = useState(false);
+  const [showPredictions, setShowPredictions] = useState(false);
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [showImportField, setShowImportField] = useState(false);
   const [importText, setImportText] = useState("");
@@ -479,6 +482,47 @@ export default function App() {
       fetchESPN(selectedEvent);
     }
   }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Fetch Kalshi prediction market data ----
+  const fetchKalshi = useCallback(async (evName) => {
+    const name = evName || eventName;
+    if (!name) return;
+    setKalshiLoading(true);
+    try {
+      const resp = await fetch(`/api/kalshi?event=${encodeURIComponent(name)}`);
+      if (!resp.ok) throw new Error("API returned " + resp.status);
+      const data = await resp.json();
+      setKalshiData(data);
+    } catch (err) {
+      console.error("Kalshi fetch error:", err);
+      setKalshiData({ available: false, golfers: {} });
+    }
+    setKalshiLoading(false);
+  }, [eventName]);
+
+  // Auto-fetch Kalshi when event name changes on leaderboard
+  useEffect(() => {
+    if (screen === "leaderboard" && eventName) fetchKalshi(eventName);
+  }, [screen, eventName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Helper: look up Kalshi data for a golfer name
+  const getKalshiOdds = useCallback((golferName) => {
+    if (!kalshiData?.available || !kalshiData.golfers) return null;
+    const norm = (golferName || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").trim();
+    // Direct match
+    if (kalshiData.golfers[norm]) return kalshiData.golfers[norm];
+    // Fuzzy: check if any Kalshi name contains or is contained by the search
+    const parts = norm.split(" ");
+    const lastName = parts[parts.length - 1];
+    for (const [key, val] of Object.entries(kalshiData.golfers)) {
+      if (key.includes(norm) || norm.includes(key)) return val;
+      // Last name + first initial match
+      const kParts = key.split(" ");
+      const kLast = kParts[kParts.length - 1];
+      if (kLast === lastName && kParts[0]?.[0] === parts[0]?.[0]) return val;
+    }
+    return null;
+  }, [kalshiData]);
 
   // ---- Pool Leaderboard ----
   const poolLB = (() => {
@@ -1014,6 +1058,54 @@ export default function App() {
             </div>
           </Card>
         )}
+
+        {/* Prediction market odds */}
+        {(() => {
+          const odds = getKalshiOdds(golferDetail);
+          const categories = [
+            { key: "cut", label: "Make Cut", icon: "✂️" },
+            { key: "top20", label: "Top 20", icon: "🏌️" },
+            { key: "top10", label: "Top 10", icon: "🔟" },
+            { key: "top5", label: "Top 5", icon: "🏅" },
+            { key: "winner", label: "Win", icon: "🏆" },
+          ];
+          return (
+            <Card>
+              <h3 style={S.sec}>Prediction Markets</h3>
+              {kalshiLoading ? (
+                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: 8 }}>Loading market data...</div>
+              ) : odds ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                  {categories.map(({ key, label }) => {
+                    const pct = odds[key];
+                    const barColor = key === "cut" ? (pct >= 70 ? "#4CAF50" : pct >= 40 ? "#FF9800" : "#dc3545")
+                      : G;
+                    return (
+                      <div key={key} style={{ flex: "1 1 80px", minWidth: 75, background: "#f8f9fa", borderRadius: 8, padding: "10px 8px", textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+                        {pct != null ? (
+                          <>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: barColor }}>{pct}%</div>
+                            <div style={{ ...S.bar, marginTop: 4, height: 5 }}>
+                              <div style={{ background: barColor, height: "100%", borderRadius: 8, width: pct + "%", transition: "width 0.5s" }} />
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 16, fontWeight: 600, color: "#ccc" }}>N/A</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: 8 }}>
+                  {kalshiData?.available === false ? "Market data not available for this tournament" : "No odds found for this golfer"}
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 8 }}>Source: Kalshi prediction markets</div>
+            </Card>
+          );
+        })()}
 
         {/* Round scores */}
         {g ? (
@@ -1731,6 +1823,7 @@ export default function App() {
           {showFullLB ? "Pool View" : "Tournament"}
         </button>
         <button style={{ ...S.ctrl, background: showChart ? G : "white", color: showChart ? "white" : GD }} onClick={() => setShowChart(!showChart)}>Chart</button>
+        <button style={{ ...S.ctrl, background: showPredictions ? G : "white", color: showPredictions ? "white" : GD }} onClick={() => setShowPredictions(!showPredictions)}>Predictions</button>
         <button style={S.ctrl} onClick={() => setShowRules(!showRules)}>Rules</button>
         <button style={S.ctrl} onClick={() => setScreen("draft")}>Draft</button>
         <button style={S.ctrl} onClick={copyInviteLink}>Share</button>
@@ -1760,6 +1853,122 @@ export default function App() {
         </Card>
       )}
       {tournamentWinner && <div style={S.winnerBanner}>Champion: {tournamentWinner}</div>}
+
+      {showPredictions && (
+        <Card>
+          <h3 style={S.sec}>Prediction Market Analysis</h3>
+          {kalshiLoading ? (
+            <div style={{ textAlign: "center", padding: 16, color: "#aaa" }}>Loading prediction data...</div>
+          ) : !kalshiData?.available ? (
+            <div style={{ textAlign: "center", padding: 16, color: "#999" }}>
+              <div style={{ fontSize: 24, marginBottom: 6 }}>N/A</div>
+              <div style={{ fontSize: 13 }}>Prediction market data not yet available for this tournament.</div>
+              <div style={{ fontSize: 11, color: "#bbb", marginTop: 4 }}>Markets typically open 1-2 weeks before the event.</div>
+            </div>
+          ) : poolLB.length > 0 ? (() => {
+            // Calculate risk/safety stats for each player
+            const playerStats = poolLB.map(player => {
+              const golferOdds = player.golfers.map(g => {
+                const odds = getKalshiOdds(g.name);
+                return { name: g.name, odds, cutPct: odds?.cut ?? null, status: g.status };
+              });
+              const withCutData = golferOdds.filter(g => g.cutPct != null);
+              const avgCutPct = withCutData.length ? Math.round(withCutData.reduce((s, g) => s + g.cutPct, 0) / withCutData.length) : null;
+              // Expected missed cuts = sum of (1 - cutPct/100) for all golfers
+              const expectedMC = withCutData.length ? withCutData.reduce((s, g) => s + (1 - g.cutPct / 100), 0) : null;
+              // Probability all make the cut = product of individual cut probabilities
+              const allMakeCut = withCutData.length === player.golfers.length
+                ? Math.round(withCutData.reduce((p, g) => p * (g.cutPct / 100), 1) * 100)
+                : null;
+              // Average top 10 probability
+              const withTop10 = golferOdds.filter(g => g.odds?.top10 != null);
+              const avgTop10 = withTop10.length ? Math.round(withTop10.reduce((s, g) => s + g.odds.top10, 0) / withTop10.length) : null;
+              return { name: player.name, golferOdds, avgCutPct, expectedMC, allMakeCut, avgTop10, hasData: withCutData.length > 0 };
+            }).filter(p => p.hasData);
+
+            // Sort: safest = highest avg cut%, riskiest = lowest
+            const bySafety = [...playerStats].sort((a, b) => (b.avgCutPct || 0) - (a.avgCutPct || 0));
+
+            return (
+              <>
+                {/* Safest to Riskiest ranking */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: GD, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    Safest to Riskiest Picks
+                  </div>
+                  {bySafety.map((p, idx) => {
+                    const safetyColor = p.avgCutPct >= 75 ? "#4CAF50" : p.avgCutPct >= 55 ? "#FF9800" : "#dc3545";
+                    const isMe = claims[p.name] === uid;
+                    return (
+                      <div key={p.name} style={{ display: "flex", alignItems: "center", padding: "10px 8px", borderBottom: "1px solid #f0f0f0", gap: 10 }}>
+                        <div style={{ width: 24, fontSize: 14, fontWeight: 700, color: idx === 0 ? "#4CAF50" : idx === bySafety.length - 1 ? "#dc3545" : "#888", textAlign: "center" }}>
+                          {idx + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: GD }}>
+                            {p.name} {isMe && <span style={{ fontSize: 10, color: GOLD }}>(You)</span>}
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 3, fontSize: 11, color: "#888" }}>
+                            {p.golferOdds.map(g => (
+                              <span key={g.name} style={{ color: g.cutPct != null ? (g.cutPct >= 70 ? "#4CAF50" : g.cutPct >= 40 ? "#FF9800" : "#dc3545") : "#ccc" }}>
+                                {g.name.split(" ").pop()} {g.cutPct != null ? g.cutPct + "%" : "N/A"}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 70 }}>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: safetyColor }}>{p.avgCutPct}%</div>
+                          <div style={{ fontSize: 10, color: "#888" }}>avg cut</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Key stats comparison */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  {bySafety.map(p => {
+                    const isMe = claims[p.name] === uid;
+                    return (
+                      <div key={p.name} style={{ background: "#f8f9fa", borderRadius: 10, padding: 12, textAlign: "center" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: GD, marginBottom: 8 }}>
+                          {p.name} {isMe && <span style={{ fontSize: 9, color: GOLD }}>(You)</span>}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-around", gap: 4 }}>
+                          <div>
+                            <div style={{ fontSize: 10, color: "#888" }}>All Make Cut</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: p.allMakeCut != null ? (p.allMakeCut >= 40 ? "#4CAF50" : p.allMakeCut >= 15 ? "#FF9800" : "#dc3545") : "#ccc" }}>
+                              {p.allMakeCut != null ? p.allMakeCut + "%" : "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: "#888" }}>Exp. MCs</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: p.expectedMC != null ? (p.expectedMC <= 0.5 ? "#4CAF50" : p.expectedMC <= 1.5 ? "#FF9800" : "#dc3545") : "#ccc" }}>
+                              {p.expectedMC != null ? p.expectedMC.toFixed(1) : "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: "#888" }}>Avg T10</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: G }}>
+                              {p.avgTop10 != null ? p.avgTop10 + "%" : "N/A"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ fontSize: 10, color: "#bbb", textAlign: "center" }}>
+                  Probabilities from Kalshi prediction markets. Tap a golfer name for full odds.
+                </div>
+              </>
+            );
+          })() : (
+            <div style={{ textAlign: "center", padding: 16, color: "#999", fontSize: 13 }}>Complete the draft to see prediction analysis.</div>
+          )}
+        </Card>
+      )}
 
       {showChart && poolLB.length > 0 && (
         <div style={{ position: "fixed", inset: 0, zIndex: 998, background: "white", display: "flex", flexDirection: "column", overflow: "auto" }}>
