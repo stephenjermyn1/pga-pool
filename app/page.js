@@ -1880,10 +1880,30 @@ export default function App() {
               const allMakeCut = withCutData.length === player.golfers.length
                 ? Math.round(withCutData.reduce((p, g) => p * (g.cutPct / 100), 1) * 100)
                 : null;
+              // P(at least 4 of 6 make the cut) — enumerate all combos of 4+
+              // For n golfers with probs p[i], sum over all subsets of size >= BEST_OF
+              const atLeast4Cut = (() => {
+                const probs = golferOdds.map(g => g.cutPct != null ? g.cutPct / 100 : null);
+                if (probs.some(p => p == null)) return null;
+                const n = probs.length;
+                let total = 0;
+                // Iterate over all 2^n subsets, count those with size >= BEST_OF
+                for (let mask = 0; mask < (1 << n); mask++) {
+                  let bits = 0;
+                  for (let i = 0; i < n; i++) if (mask & (1 << i)) bits++;
+                  if (bits < BEST_OF) continue;
+                  let prob = 1;
+                  for (let i = 0; i < n; i++) {
+                    prob *= (mask & (1 << i)) ? probs[i] : (1 - probs[i]);
+                  }
+                  total += prob;
+                }
+                return Math.round(total * 100);
+              })();
               // Average top 10 probability
               const withTop10 = golferOdds.filter(g => g.odds?.top10 != null);
               const avgTop10 = withTop10.length ? Math.round(withTop10.reduce((s, g) => s + g.odds.top10, 0) / withTop10.length) : null;
-              return { name: player.name, golferOdds, avgCutPct, expectedMC, allMakeCut, avgTop10, hasData: withCutData.length > 0 };
+              return { name: player.name, golferOdds, avgCutPct, expectedMC, allMakeCut, atLeast4Cut, avgTop10, hasData: withCutData.length > 0 };
             }).filter(p => p.hasData);
 
             // Sort: safest = highest avg cut%, riskiest = lowest
@@ -1936,7 +1956,13 @@ export default function App() {
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-around", gap: 4 }}>
                           <div>
-                            <div style={{ fontSize: 10, color: "#888" }}>All Make Cut</div>
+                            <div style={{ fontSize: 10, color: "#888" }}>4+ Cut</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: p.atLeast4Cut != null ? (p.atLeast4Cut >= 70 ? "#4CAF50" : p.atLeast4Cut >= 40 ? "#FF9800" : "#dc3545") : "#ccc" }}>
+                              {p.atLeast4Cut != null ? p.atLeast4Cut + "%" : "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: "#888" }}>All 6 Cut</div>
                             <div style={{ fontSize: 16, fontWeight: 700, color: p.allMakeCut != null ? (p.allMakeCut >= 40 ? "#4CAF50" : p.allMakeCut >= 15 ? "#FF9800" : "#dc3545") : "#ccc" }}>
                               {p.allMakeCut != null ? p.allMakeCut + "%" : "N/A"}
                             </div>
