@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer, savePhoto, saveTournament, updateTournament } from "../lib/firebase";
+import { savePool, loadPool, subscribePool, updatePool, initAuth, createPool, lookupJoinCode, claimPlayer, savePhoto, saveTournament, updateTournament, claimAdmin } from "../lib/firebase";
 
 // --- Dynamic Tournament Theming ---
 let G, GD, GOLD, CREAM, BOARD_GREEN, BOARD_DARK;
@@ -151,6 +151,9 @@ export default function App() {
   const [joinInput, setJoinInput] = useState("");
   const [joinErr, setJoinErr] = useState("");
   const [showSplash, setShowSplash] = useState(false);
+  const [showClaimAdmin, setShowClaimAdmin] = useState(false);
+  const [claimAdminCode, setClaimAdminCode] = useState("");
+  const [claimAdminErr, setClaimAdminErr] = useState("");
 
   const unsubRef = useRef(null);
   const prevPickIdxRef = useRef(null);
@@ -1459,6 +1462,50 @@ export default function App() {
           </>
         )}
       </Card>
+      {!isAdmin && (
+        <Card>
+          {!showClaimAdmin ? (
+            <button style={{ background: "none", border: "none", fontSize: 12, color: "#999", cursor: "pointer", padding: 0, fontFamily: "'Georgia',serif", width: "100%", textAlign: "center" }}
+              onClick={() => setShowClaimAdmin(true)}>
+              Lost admin access? Claim admin role
+            </button>
+          ) : (
+            <div>
+              <h3 style={{ margin: "0 0 8px", fontSize: 14, color: GD }}>Claim Admin Role</h3>
+              <p style={{ margin: "0 0 10px", fontSize: 12, color: "#888" }}>Enter this pool's join code to become admin.</p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", fontSize: 14, fontFamily: "'Georgia',serif", letterSpacing: 2, textTransform: "uppercase" }}
+                  placeholder="Pool code"
+                  value={claimAdminCode}
+                  onChange={e => { setClaimAdminCode(e.target.value.toUpperCase()); setClaimAdminErr(""); }}
+                  maxLength={6}
+                />
+                <button style={{ ...S.primary, margin: 0, padding: "10px 16px" }}
+                  onClick={async () => {
+                    if (!claimAdminCode.trim()) return;
+                    const result = await claimAdmin(poolId, uid, claimAdminCode.trim());
+                    if (result.ok) {
+                      notify("You are now the admin!");
+                      setShowClaimAdmin(false);
+                      setClaimAdminCode("");
+                      setClaimAdminErr("");
+                    } else {
+                      setClaimAdminErr(result.error);
+                    }
+                  }}>
+                  Claim
+                </button>
+              </div>
+              {claimAdminErr && <p style={{ margin: "6px 0 0", fontSize: 12, color: "#dc3545" }}>{claimAdminErr}</p>}
+              <button style={{ background: "none", border: "none", fontSize: 11, color: "#999", cursor: "pointer", marginTop: 8, padding: 0, fontFamily: "'Georgia',serif" }}
+                onClick={() => { setShowClaimAdmin(false); setClaimAdminCode(""); setClaimAdminErr(""); }}>
+                Cancel
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
       {EventPicker}
       {showNewTournament && <NewTournamentModal />}
       <Toast msg={toast} />
