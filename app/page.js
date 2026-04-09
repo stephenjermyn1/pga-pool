@@ -90,6 +90,7 @@ function holeBg(st) {
 
 function shuffle(a) { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; }
 function snake(p, r) { const o=[]; for(let i=0;i<r;i++) o.push(...(i%2===0?p:[...p].reverse())); return o; }
+function normName(s) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
 
 export default function App() {
   // --- Identity ---
@@ -533,7 +534,8 @@ export default function App() {
     return players.map(player => {
       const myGolfers = (picks[player] || []).map(golfer => {
         let e = espnField.find(f => f.name === golfer);
-        if (!e) e = espnField.find(f => f.name.toLowerCase().includes(golfer.toLowerCase()) || golfer.toLowerCase().includes(f.name.toLowerCase()));
+        if (!e) e = espnField.find(f => normName(f.name) === normName(golfer));
+        if (!e) e = espnField.find(f => normName(f.name).includes(normName(golfer)) || normName(golfer).includes(normName(f.name)));
         if (e) {
           let stp = e.scoreToPar;
           if (e.status === "cut" && e.roundsCompleted <= 2) {
@@ -542,7 +544,7 @@ export default function App() {
             stp = fmtPar(cur + extra);
           }
           const parNum = stp === "E" ? 0 : parseInt(stp) || 0;
-          const isW = tournamentWinner && golfer.toLowerCase() === tournamentWinner.toLowerCase();
+          const isW = tournamentWinner && normName(golfer) === normName(tournamentWinner);
           return { name: golfer, scoreToPar: stp, parNum, rounds: e.rounds, status: e.status, holesPlayed: e.holesPlayed, isWinner: isW, found: true };
         }
         return { name: golfer, scoreToPar: "—", parNum: 999, rounds: [], status: "unknown", holesPlayed: 0, isWinner: false, found: false };
@@ -1552,7 +1554,8 @@ export default function App() {
   // ---- DRAFT ----
   if (screen === "draft") {
     const allPicked = Object.values(picks).flat();
-    const available = espnField.map(f => f.name).filter(g => !allPicked.includes(g));
+    const allPickedNorm = allPicked.map(normName);
+    const available = espnField.map(f => f.name).filter(g => !allPickedNorm.includes(normName(g)));
     const filtered = search ? available.filter(g => g.toLowerCase().includes(search.toLowerCase())) : available;
     const round = Math.min(Math.floor(pickIdx / players.length) + 1, PICKS);
     const total = draftOrder.length;
@@ -1560,7 +1563,7 @@ export default function App() {
 
     const doPick = (golfer) => {
       if (!canPick) { notify("It's not your turn!"); return; }
-      if (allPicked.includes(golfer)) { notify("Already picked!"); return; }
+      if (allPickedNorm.includes(normName(golfer))) { notify("Already picked!"); return; }
       const u = { ...picks }; u[drafter] = [...(u[drafter] || []), golfer];
       const next = pickIdx + 1;
       const done = next >= total;
@@ -1571,10 +1574,11 @@ export default function App() {
     };
 
     const allPickedForEdit = Object.values(picks).flat();
+    const allPickedForEditNorm = allPickedForEdit.map(normName);
     const EditPicksModal = editingPicks ? (() => {
       const { player, pickIndex } = editingPicks;
       const currentGolfer = (picks[player] || [])[pickIndex];
-      const availableForSwap = espnField.map(f => f.name).filter(g => !allPickedForEdit.includes(g) || g === currentGolfer);
+      const availableForSwap = espnField.map(f => f.name).filter(g => !allPickedForEditNorm.includes(normName(g)) || normName(g) === normName(currentGolfer));
       const filteredSwap = editSearch ? availableForSwap.filter(g => g.toLowerCase().includes(editSearch.toLowerCase())) : availableForSwap;
       return (
         <div style={S.overlay}>
@@ -2063,7 +2067,7 @@ export default function App() {
           <h3 style={S.sec}>Tournament Leaderboard</h3>
           <div style={{ maxHeight: 500, overflowY: "auto" }}>
             {espnField.map((g, i) => {
-              const isPicked = Object.values(picks).flat().includes(g.name);
+              const isPicked = Object.values(picks).flat().some(p => normName(p) === normName(g.name));
               return (
                 <div key={g.name} style={{ display: "flex", alignItems: "center", padding: "6px 4px", borderBottom: "1px solid #f0f0f0", background: isPicked ? hexToRgba(G, 0.06) : "transparent", cursor: "pointer" }} onClick={() => setGolferDetail(g.name)}>
                   <div style={{ width: 30, fontSize: 13, fontWeight: 600, color: "#888" }}>{i + 1}</div>
