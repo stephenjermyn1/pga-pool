@@ -90,7 +90,7 @@ function holeBg(st) {
 
 function shuffle(a) { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; }
 function snake(p, r) { const o=[]; for(let i=0;i<r;i++) o.push(...(i%2===0?p:[...p].reverse())); return o; }
-function normName(s) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
+function normName(s) { return s.replace(/ø/gi, "o").replace(/æ/gi, "ae").replace(/ð/gi, "d").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
 
 export default function App() {
   // --- Identity ---
@@ -512,7 +512,7 @@ export default function App() {
   // Helper: look up Kalshi data for a golfer name
   const getKalshiOdds = useCallback((golferName) => {
     if (!kalshiData?.available || !kalshiData.golfers) return null;
-    const norm = (golferName || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").trim();
+    const norm = (golferName || "").replace(/ø/gi, "o").replace(/æ/gi, "ae").replace(/ð/gi, "d").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").trim();
     // Direct match
     if (kalshiData.golfers[norm]) return kalshiData.golfers[norm];
     // Fuzzy: check if any Kalshi name contains or is contained by the search

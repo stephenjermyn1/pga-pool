@@ -34,6 +34,7 @@ function detectTournament(eventName) {
 
 function normaliseName(name) {
   return (name || "")
+    .replace(/ø/gi, "o").replace(/æ/gi, "ae").replace(/ð/gi, "d")
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\s+(jr|sr|ii|iii|iv)\.?$/i, "")
