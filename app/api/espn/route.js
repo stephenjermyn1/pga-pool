@@ -101,15 +101,17 @@ export async function GET(request) {
       const roundsCompleted = rounds.filter((r) => r.isComplete).length;
 
       let status = "active";
-      // A player has missed the cut if:
-      // - The tournament leaders have completed 3+ rounds (meaning R3 has started)
-      // - This player only has 2 or fewer completed rounds
-      // - This player has actually played some holes (not a WD before starting)
-      // - This player is NOT currently playing round 3 (has no holes in R3)
-      const r3Holes = rounds[2]?.holesPlayed || 0;
-      const r3InProgress = roundsCompleted <= 2 && r3Holes > 0;
-      if (globalMaxCompleted >= 3 && roundsCompleted <= 2 && totalHolesPlayed > 0 && !r3InProgress) {
-        status = "cut";
+      // A player has missed the cut if tournament is in R3+ and they have no R3 tee time.
+      // ESPN gives players who made the cut a tee time stat (index 6) in their R3 linescore;
+      // cut players have no tee time. This is more reliable than counting completed rounds,
+      // which breaks when R3 is underway but not everyone has teed off yet.
+      if (currentPeriod >= 3 && roundsCompleted <= 2 && totalHolesPlayed > 0) {
+        const r3Stats = c.linescores?.[2]?.statistics?.categories?.[0]?.stats || [];
+        const r3Holes = rounds[2]?.holesPlayed || 0;
+        const hasR3TeeTime = r3Stats.length >= 7 && r3Stats[6]?.displayValue;
+        if (!hasR3TeeTime && r3Holes === 0) {
+          status = "cut";
+        }
       }
 
       field.push({
