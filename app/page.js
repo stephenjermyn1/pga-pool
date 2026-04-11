@@ -1134,14 +1134,14 @@ export default function App() {
               return (
                 <div key={ri} style={{ marginBottom: 16 }}>
                   <h3 style={{ ...S.sec, fontSize: 13 }}>Round {ri + 1} Scorecard</h3>
-                  <HoleRow holes={holes.slice(0, 9)} label="Out" />
-                  {holes.length > 9 && <HoleRow holes={holes.slice(9, 18)} label="In" />}
-                  <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: 10, color: "#888", flexWrap: "wrap" }}>
-                    <span style={{ color: "#B8860B" }}>■ Eagle+</span>
-                    <span style={{ color: "#dc3545" }}>■ Birdie</span>
+                  <HoleRow holes={holes} label="Out" startHole={1} />
+                  <HoleRow holes={holes} label="In" startHole={10} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: 10, color: "#888", flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: "50%", border: "2px double #B8860B", fontSize: 8, textAlign: "center", lineHeight: "10px" }}></span> Eagle+</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: "50%", border: "1.5px solid #dc3545", fontSize: 8, textAlign: "center", lineHeight: "11px" }}></span> Birdie</span>
                     <span style={{ color: "#555" }}>■ Par</span>
-                    <span style={{ background: "rgba(0,0,0,0.04)", padding: "0 4px", borderRadius: 2 }}>■ Bogey</span>
-                    <span style={{ background: "rgba(0,0,0,0.08)", padding: "0 4px", borderRadius: 2 }}>■ Dbl+</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 2, border: "1.5px solid #666" }}></span> Bogey</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 2, border: "2px double #000" }}></span> Dbl+</span>
                   </div>
                 </div>
               );
@@ -2115,7 +2115,7 @@ export default function App() {
                   {[0, 1, 2, 3].map(ri => {
                     const rs = e.roundScores[ri];
                     const inProg = e.roundInProgress[ri];
-                    const clr = rs == null ? "rgba(255,255,255,0.15)" : inProg ? (rs < 0 ? BOARD_RED : rs > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : hexToRgba(G, 0.55);
+                    const clr = rs == null ? "rgba(255,255,255,0.15)" : inProg ? (rs < 0 ? BOARD_RED : rs > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "rgba(255,255,255,0.85)";
                     return <div key={ri} style={{ flex: 0.45, textAlign: "center", fontSize: 12, fontWeight: 600, color: clr }}>{rs != null ? fmtPar(rs) : "—"}</div>;
                   })}
                   <div style={{ flex: 0.6, textAlign: "right" }}>
@@ -2142,7 +2142,7 @@ export default function App() {
                           {[0, 1, 2, 3].map(r => {
                             const rd = g.rounds?.[r];
                             if (!rd) return <div key={r} style={{ flex: 0.45, textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.15)" }}>—</div>;
-                            const rdColor = rd.isComplete ? hexToRgba(G, 0.55) : rd.holesPlayed > 0 ? (parseInt(rd.displayValue) < 0 ? BOARD_RED : parseInt(rd.displayValue) > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "rgba(255,255,255,0.15)";
+                            const rdColor = rd.isComplete ? "rgba(255,255,255,0.85)" : rd.holesPlayed > 0 ? (parseInt(rd.displayValue) < 0 ? BOARD_RED : parseInt(rd.displayValue) > 0 ? "rgba(255,255,255,0.6)" : BOARD_YELLOW) : "rgba(255,255,255,0.15)";
                             return <div key={r} style={{ flex: 0.45, textAlign: "center", fontSize: 12, fontWeight: 600, color: rdColor }}>
                               {rd.isComplete ? rd.strokes : rd.holesPlayed > 0 ? (rd.displayValue || "—") : "—"}
                             </div>;
@@ -2716,19 +2716,49 @@ function Shell({ children, joinCode, onHome }) {
 function Card({ children }) { return <div style={{ background: "white", borderRadius: 12, padding: "16px 18px", marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>{children}</div>; }
 function Toast({ msg }) { if (!msg) return null; return <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: GD, color: "white", padding: "10px 24px", borderRadius: 10, fontSize: 14, boxShadow: "0 4px 20px rgba(0,0,0,0.3)", zIndex: 1000 }}>{msg}</div>; }
 function Stat({ label, value, color }) { return <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>{label}</div><div style={{ fontSize: 24, fontWeight: 700, color }}>{value}</div></div>; }
-function HoleRow({ holes, label }) {
-  const total = holes.reduce((s, h) => s + (h.strokes || 0), 0);
+function HoleScore({ h }) {
+  if (h.strokes == null) return <div style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "4px 0", color: "#ccc" }}>—</div>;
+  const n = parseInt(h.scoreType); // to-par for this hole
+  const isEagle = !isNaN(n) && n <= -2;
+  const isBirdie = n === -1;
+  const isBogey = n === 1;
+  const isDbl = !isNaN(n) && n >= 2;
+  const clr = holeClr(h.scoreType);
+  const shape = isEagle ? { borderRadius: "50%", border: "2px double " + clr, padding: "1px 0" }
+    : isBirdie ? { borderRadius: "50%", border: "1.5px solid " + clr, padding: "1px 0" }
+    : isDbl ? { borderRadius: 2, border: "2px double " + clr, padding: "1px 0" }
+    : isBogey ? { borderRadius: 2, border: "1.5px solid " + clr, padding: "1px 0" }
+    : {};
+  return (
+    <div style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "4px 0", display: "flex", justifyContent: "center", alignItems: "center" }}>
+      <span style={{ display: "inline-flex", justifyContent: "center", alignItems: "center", minWidth: 22, minHeight: 22, color: clr, background: holeBg(h.scoreType), ...shape }}>{h.strokes}</span>
+    </div>
+  );
+}
+
+function HoleRow({ holes, label, startHole }) {
+  const count = label === "Out" ? 9 : 9;
+  const start = startHole || (label === "Out" ? 1 : 10);
+  // Pad holes to always show 9 columns
+  const padded = [];
+  for (let i = 0; i < count; i++) {
+    const holeNum = start + i;
+    const existing = holes.find(h => h.hole === holeNum);
+    padded.push(existing || { hole: holeNum, strokes: null, scoreType: null });
+  }
+  const played = padded.filter(h => h.strokes != null);
+  const total = played.reduce((s, h) => s + (h.strokes || 0), 0);
   return (
     <div style={{ overflowX: "auto", marginBottom: 6 }}>
       <div style={{ display: "flex", minWidth: 360 }}>
         <div style={{ width: 36, fontSize: 10, fontWeight: 700, color: "#888", padding: "4px 0" }}>Hole</div>
-        {holes.map(h => <div key={h.hole} style={{ flex: 1, textAlign: "center", fontSize: 10, fontWeight: 700, color: "#888", padding: "4px 0" }}>{h.hole}</div>)}
+        {padded.map(h => <div key={h.hole} style={{ flex: 1, textAlign: "center", fontSize: 10, fontWeight: 700, color: "#888", padding: "4px 0" }}>{h.hole}</div>)}
         <div style={{ width: 36, textAlign: "center", fontSize: 10, fontWeight: 700, color: "#888", padding: "4px 0" }}>{label}</div>
       </div>
       <div style={{ display: "flex", minWidth: 360 }}>
         <div style={{ width: 36 }}></div>
-        {holes.map(h => <div key={h.hole} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "4px 0", color: holeClr(h.scoreType), background: holeBg(h.scoreType), borderRadius: 4 }}>{h.strokes != null ? h.strokes : ""}</div>)}
-        <div style={{ width: 36, textAlign: "center", fontSize: 13, fontWeight: 700, color: GD, padding: "4px 0" }}>{total || ""}</div>
+        {padded.map(h => <HoleScore key={h.hole} h={h} />)}
+        <div style={{ width: 36, textAlign: "center", fontSize: 13, fontWeight: 700, color: GD, padding: "4px 0" }}>{played.length > 0 ? total : ""}</div>
       </div>
     </div>
   );
